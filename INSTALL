@@ -1,0 +1,12 @@
+Installation
+------------
+
+For installing using the GNU Build System installation method of source packages,
+just open a terminal and type the following commands:
+
+	username@host: dir $ tar -jxf nullify.tar.bz2
+	username@host: dir $ cd nullify
+	username@host: nullify $ ./configure --prefix=/usr/local
+	username@host: nullify $ make
+	username@host: nullify $ sudo make install
+
