@@ -1,7 +1,7 @@
-nullify
-======
+Nullify
+=======
 
-	nullify is a turn-based cards videogame which goal is to get rid of all cards in hand
+	Nullify is a turn-based cards videogame for Linux which goal is to get rid of all cards in hand
 (initially 5 cards). There are no winners, but there is a looser: last player who could not
 get rid of his/her cards.
 
