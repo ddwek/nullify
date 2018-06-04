@@ -23,6 +23,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <errno.h>
 #include <time.h>
 #include <signal.h>
 #include <X11/Xlib.h>
@@ -360,7 +361,7 @@ int load_resource(struct resource_st *res, const char *filename)
 
 	fileptr = fopen(filename, "rb");
 	if (!fileptr) {
-		procedure_error("fopen");
+		perror("fopen");
 		return -1;
 	}
 
@@ -371,14 +372,14 @@ int load_resource(struct resource_st *res, const char *filename)
 
 	res->bytes = (png_bytepp)malloc(png_infoptr->height * sizeof(png_bytep));
 	if (!res->bytes) {
-		procedure_error("malloc");
+		perror("malloc");
 		return -1;
 	}
 
 	for (y=0;y<png_infoptr->height;y++) {
 		res->bytes[y] = (png_bytep)malloc(png_infoptr->width * 3);
 		if (!res->bytes[y]) {
-			procedure_error("malloc");
+			perror("malloc");
 			return -1;
 		}
 	}
@@ -401,7 +402,7 @@ int load_resource(struct resource_st *res, const char *filename)
 	res->ncolors = dllst->size;
 	res->color = (GC *)malloc(dllst->size * sizeof(GC));
 	if (!res->color) {
-		procedure_error("malloc");
+		perror("malloc");
 		return -1;
 	}
 
