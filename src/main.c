@@ -125,9 +125,9 @@ gui_dialog_t *dialog = NULL;
 gui_button_t *newround_button = NULL, *newgame_button = NULL;
 struct {
 	unsigned long kind;
-	int unused0;
+	unsigned long unused0; // was int
 	unsigned long number;
-	int unused1;
+	unsigned long unused1; // was int
 } fields = { 0 };
 
 int load_resource(struct resource_st *res, const char *filename);
