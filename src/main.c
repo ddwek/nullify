@@ -52,8 +52,8 @@
 #define KIND_Y(x)		((600 - CARD_HEIGHT) / 2 + x * 26)
 #define ARROW_X			(KIND_X - 100)
 #define ARROW_Y			(KIND_Y(KIND_CLOVERS) + 20)
-#define CARD_KIND(x)		(*((unsigned long *)x->fields + 0))
-#define CARD_NUMBER(x)		(*((unsigned long *)x->fields + 2))
+#define CARD_KIND(x)		(*((unsigned int *)x->fields + 0))
+#define CARD_NUMBER(x)		(*((unsigned int *)x->fields + 2))
 #define DECK_PLAYED_X		((800 - 2 * (CARD_WIDTH - 7)) / 2 + CARD_WIDTH + 7)
 #define DECK_PLAYED_Y		((600 - CARD_HEIGHT) / 2)
 #define FLAGS_NONE		0
@@ -124,10 +124,10 @@ boolean_t round_finished = FALSE;
 gui_dialog_t *dialog = NULL;
 gui_button_t *newround_button = NULL, *newgame_button = NULL;
 struct {
-	unsigned long kind;
-	unsigned long unused0; // was int
-	unsigned long number;
-	unsigned long unused1; // was int
+	unsigned int kind;
+	unsigned int unused0;
+	unsigned int number;
+	unsigned int unused1;
 } fields = { 0 };
 
 int load_resource(struct resource_st *res, const char *filename);
@@ -352,7 +352,7 @@ int load_resource(struct resource_st *res, const char *filename)
 	dllst_t *dllst = NULL;
 	dllst_item_struct_t *iter;
 	struct {
-		unsigned long color;
+		unsigned int color;
 		void *unused0;
 	} fields2 = { 0 };
 	png_structp png_ptr   = NULL;
@@ -386,7 +386,7 @@ int load_resource(struct resource_st *res, const char *filename)
 	png_read_image(png_ptr, res->bytes);
 	png_read_end(png_ptr, png_infoptr);
 
-	dllst = dllst_initlst(dllst, "L:");
+	dllst = dllst_initlst(dllst, "I:");
 	for (y=0;y<png_infoptr->height;y++) {
 		for (x=0;x<png_infoptr->width * 3;x+=3) {
 			fields2.color = (res->bytes[y][x + 2] <<  0)|
@@ -457,11 +457,11 @@ void init_deck(void)
 	int i, j;
 
 
-	deck_list = dllst_initlst(deck_list, "L:L:");
+	deck_list = dllst_initlst(deck_list, "I:I:");
 	for (i=0;i<4;i++) {
 		for (j=0;j<13;j++) {
-			fields.kind = (unsigned long)i;
-			fields.number = (unsigned long)j;
+			fields.kind = (unsigned int)i;
+			fields.number = (unsigned int)j;
 			dllst_newitem(deck_list, &fields);
 		}
 	}
@@ -489,7 +489,7 @@ int init_players(int n)
 		// Player is active in the current round (i.e., this bot can play cards when in turn)
 		player[i].active = TRUE;
 
-		player[i].list = dllst_initlst(player[i].list, "L:L:");
+		player[i].list = dllst_initlst(player[i].list, "I:I:");
 		for (j=0;j<5;j++) {
 			fields.kind   = CARD_KIND(deck_list->head);
 			fields.number = CARD_NUMBER(deck_list->head);
@@ -513,7 +513,7 @@ void init_round(void)
 	timer_settime(playing_timer, TIMER_ABSTIME, &its, NULL);
 	timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
 
-	played_list = dllst_initlst(played_list, "L:L:");
+	played_list = dllst_initlst(played_list, "I:I:");
 	fields.kind   = CARD_KIND(deck_list->head);
 	fields.number = CARD_NUMBER(deck_list->head);
 	dllst_newitem(played_list, &fields);
@@ -912,7 +912,7 @@ int selectbestkind(int n)
 		};
 	}
 
-	dllst = dllst_initlst(dllst, "L:L:");
+	dllst = dllst_initlst(dllst, "I:I:");
 	for (i=0;i<4;i++) {
 		fields.kind = i;
 		fields.number = count[i];
@@ -944,7 +944,7 @@ void bot_play(int n)
 	dllst_t *alternatives = NULL;
 
 
-	alternatives = dllst_initlst(alternatives, "L:L:");
+	alternatives = dllst_initlst(alternatives, "I:I:");
 	for (j=0;j<4;j++) {
 		if (CARD_NUMBER(played_list->tail) == CARD_TWO(j) ||
 		    CARD_NUMBER(played_list->tail) == CARD_ACE(j)) {
