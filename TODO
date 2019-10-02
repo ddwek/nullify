@@ -1,0 +1,24 @@
+This is the list of items to add / modify / remove from the current version:
+
+* Add replaying of saved XML session files.
+
+* Add parsing of configuration input file.
+
+* Write DocBook documentation in order to produce fancy manpages
+  easier than writing it by hand.
+
+Next is the list of things I tried hard to find a solution over and over
+again and I only got "frustrations":
+
+* Fix up calls to XSetStandardProperties() with a valid pixmap to be used
+  as the icon of the window.
+
+* Add handling of WM messages to the program in the X main loop,
+  especially to call the atexit function and thus perform a well exit.
+
+* Modify configure.ac to write default and user defines to a config header,
+  which can later be #include'd by src/main.c
+
+If you got the answer to any of them, just let me know by writing me to
+<todovirtual15@gmail.com>. Your collaboration will be very appreciated!
+

@@ -1,6 +1,6 @@
 /*
- *
- * Copyright 2018 Daniel Dwek
+ * main.c: the main functions of the game.
+ * Copyright 2018-2019 Daniel Dwek
  *
  * This file is part of nullify.
  *
@@ -25,7 +25,6 @@
 #include <getopt.h>
 #include <errno.h>
 #include <time.h>
-#include <signal.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <png.h>
@@ -33,7 +32,11 @@
 #undef FALSE
 #include "gui.h"
 #include "dllst.h"
+#include "digraph.h"
+#include "misc.h"
+#include "xmlwrappers.h"
 
+// some convenience defines
 #define NPLAYERS		4
 #define CARD_WIDTH		73
 #define CARD_HEIGHT		97
@@ -41,62 +44,66 @@
 #define CARD_TWO(x)		(x * 13 + 1)
 #define CARD_FOUR(x)		(x * 13 + 3)
 #define CARD_SEVEN(x)		(x * 13 + 6)
-#define CARD_JOCKER(x)		(x * 13 + 10)
+#define CARD_JACK(x)		(x * 13 + 10)
 #define CARD_QUEEN(x)		(x * 13 + 11)
 #define CARD_KING(x)		(x * 13 + 12)
-#define KIND_CLOVERS		0
-#define KIND_DIAMONDS		1
-#define KIND_HEARTS		2
-#define KIND_PICAS		3
-#define KIND_X			((800 - 2 * (CARD_WIDTH - 7)) / 2 - 32)
-#define KIND_Y(x)		((600 - CARD_HEIGHT) / 2 + x * 26)
-#define ARROW_X			(KIND_X - 100)
-#define ARROW_Y			(KIND_Y(KIND_CLOVERS) + 20)
-#define CARD_KIND(x)		(*((unsigned int *)x->fields + 0))
+#define SUIT_CLUBS		0
+#define SUIT_DIAMONDS		1
+#define SUIT_HEARTS		2
+#define SUIT_SPADES		3
+#define SUIT_X			((800 - 2 * (CARD_WIDTH - 7)) / 2 - 32)
+#define SUIT_Y(x)		((600 - CARD_HEIGHT) / 2 + x * 26)
+#define ARROW_X			(SUIT_X - 100)
+#define ARROW_Y			(SUIT_Y(SUIT_CLUBS) + 20)
+#define CARD_SUIT(x)		(*((unsigned int *)x->fields + 0))
 #define CARD_NUMBER(x)		(*((unsigned int *)x->fields + 2))
-#define DECK_PLAYED_X		((800 - 2 * (CARD_WIDTH - 7)) / 2 + CARD_WIDTH + 7)
-#define DECK_PLAYED_Y		((600 - CARD_HEIGHT) / 2)
+#define DECK_X			((800 - 2 * (CARD_WIDTH - 7)) / 2)
+#define DECK_Y			((600 - CARD_HEIGHT) / 2)
+#define STACK_OF_PLAYED_X	(DECK_X + CARD_WIDTH + 7)
+#define STACK_OF_PLAYED_Y	DECK_Y
 #define FLAGS_NONE		0
 #define FLAGS_QUEEN		1
 #define HUMAN			0
-#define CPU1			1
-#define CPU2			2
-#define CPU3			3
+#define BOT_1			1
+#define BOT_2			2
+#define BOT_3			3
 #define HUMAN_X			((800 - 5 * (CARD_WIDTH + 7)) / 2 - 60)
-#define HUMAN_Y			(600 - 10 - (CARD_HEIGHT + 3) / 2)
-#define CPU1_X			10
-#define CPU1_Y			128
-#define CPU2_X			((800 - 5 * (CARD_WIDTH + 7)) / 2 - 60)
-#define CPU2_Y			(10 + (CARD_HEIGHT + 3) / 2)
-#define CPU3_X			(800 - 10 - CARD_WIDTH)
-#define CPU3_Y			128
-#define NRESOURCES		65
+#define HUMAN_Y			580
+#define BOT_1_X			10
+#define BOT_1_Y			128
+#define BOT_2_X			((800 - 5 * (CARD_WIDTH + 7)) / 2 - 60)
+#define BOT_2_Y			20
+#define BOT_3_X			(800 - 10 - CARD_WIDTH)
+#define BOT_3_Y			128
+#define NRESOURCES		66
 #define RES_PLAYING_DISABLED	52
 #define RES_PLAYING_ENABLED	53
-#define RES_CLOVERS		54
+#define RES_CLUBS		54
 #define RES_DIAMONDS		55
 #define RES_HEARTS		56
-#define RES_PICAS		57
-#define RES_CLOVERS_INV		58
+#define RES_SPADES		57
+#define RES_CLUBS_INV		58
 #define RES_DIAMONDS_INV	59
 #define RES_HEARTS_INV		60
-#define RES_PICAS_INV		61
+#define RES_SPADES_INV		61
 #define RES_ARROW_CW		62
 #define RES_ARROW_CCW		63
 #define RES_DECK		64
-#define RES_KIND_BASE		54
-#define RES_KIND_BASE_INV	58
+#define RES_DECK_LOCKED		65
+#define RES_SUIT_BASE		54
+#define RES_SUIT_BASE_INV	58
 
+// user-defined types and global variables
 typedef enum { EXPOSURE_CARD=0, DELETE_CARD, ADD_CARD, GET_CARD } action_t;
-typedef enum { EXPOSURE_KIND=0, SELECT_KIND, SELECT_NONE } action_table_t;
+typedef enum { EXPOSURE_SUIT=0, SELECT_SUIT, SELECT_NONE } action_table_t;
 
 Display *display;
 Window window;
 XEvent event;
+Pixmap cardpixmap;
 GC gc_table, gc_selector, gc_white, gc_black, gc_anim[8];
-struct itimerspec its = { { 0 }, { 0 } };
 timer_t deck_timer, playing_timer, table_timer;
-unsigned turn;
+unsigned turn, ngame, nhand;
 struct resource_st {
 	png_bytepp bytes;
 	GC *color;
@@ -109,65 +116,94 @@ struct resource_st {
 		int x1;
 		int y1;
 	} region;
-} *resource = NULL;
+} resource[NRESOURCES] = { 0 };
 struct player_st {
-	boolean_t active;		// Whether the player is still active in the round or not
+	char name[20];
+	boolean_t active;		// Whether the player is still active in the hand or not
 	dllst_t *list;			// List of cards
-	float probabilities[17];	// Bots choose the best card to play depending on probabilities of kind/number
-	unsigned scores;		// Total scores in the game
-} *player;
+	float probabilities[17];	// Bots choose the best card to play depending on probabilities of suit/number
+	int scores;			// Total scores in the game
+	int specialpts;
+} player[NPLAYERS] = { 0 };
 dllst_t *deck_list = NULL, *played_list = NULL;
 int card_row[NPLAYERS] = { 0 };
 int playing_x[NPLAYERS] = { 0 }, playing_y[NPLAYERS] = { 0 };
-int getatmost, lastkind, rotation;
-boolean_t round_finished = FALSE;
+int getatmost, lastsuit, rotation;
+int skipframes = 2;
+int game_total = 16;
+boolean_t show_bot_cards = FALSE;
+boolean_t savelog = FALSE;
+char *logfilename = NULL;
+boolean_t hand_finished = FALSE;
 gui_dialog_t *dialog = NULL;
-gui_button_t *newround_button = NULL, *newgame_button = NULL;
+gui_button_t *newhand_button = NULL, *newgame_button = NULL;
 struct {
-	unsigned int kind;
+	unsigned int suit;
 	unsigned int unused0;
 	unsigned int number;
 	unsigned int unused1;
 } fields = { 0 };
 
-int load_resource(struct resource_st *res, const char *filename);
+// local function declarations
+int load_resource(struct resource_st *res, const char *filename, int xoffset, int stop);
 void render_resource(struct resource_st *res, int X, int Y);
 void init_deck(void);
+void lock_deck(void);
+void unlock_deck(void);
 int init_players(int n);
-void init_round(void);
-void calc_probabilities(int n);
+void init_hand(void);
 void add_selector(struct resource_st *card, int x, int dx, int y);
 void del_selector(struct resource_st *card, int x, int dx, int y);
 void update_cards(int nplayer, action_t act, void *param);
 void update_table(action_table_t act);
 void update_turn(int flags);
+char *decode_card(int suit, int number, boolean_t addnode);
+void animate_card(int nplayer, boolean_t isplaying, int suit, int number);
 int getcardfromdeck(int nplayer, action_t act);
-void playcard(int n, int kind, int number, unsigned long *param);
-int selectbestkind(int n);
+void playcard(int n, int suit, int number, unsigned long *param);
+void bot_calc_probabilities(int n);
+int bot_select_best_suit(int n);
 void bot_play(int n);
 int getactiveplayers(void);
-void finish_round(void);
+void finish_hand(void);
 void do_exposure(XExposeEvent *ep);
 void do_buttondown(XButtonEvent *bp);
 void do_timer(union sigval tp);
+void do_exit(void);
 
 int main(int argc, char **argv)
 {
-	int i, j;
-	char filename[64] = { '\0' };
-	struct sigevent sev = { { 0 } };
-	Pixmap stdpixmap = { 0 };
+	int i, j, opt;
+	char filename[96] = { '\0' };
+	char str[64] = { '\0' };
+	Pixmap iconpixmap = { 0 };
+	unsigned iconwidth, iconheight;
 	XSizeHints hints;
+	struct option longoptions[] = {
+		{ "name",       required_argument, NULL, 'n' },
+		{ "debug",      no_argument, NULL, 'd' },
+		{ "skipframes", required_argument, NULL, 'f' },
+		{ "savelog",    no_argument, NULL, 's' },
+		{ "logfile",    required_argument, NULL, 'l' },
+		{ "total",      required_argument, NULL, 't' },
+		{ "version",    no_argument, NULL, 'v' },
+		{ "help",       no_argument, NULL, 'h' },
+		{ NULL, 0, NULL, 0 },
+	};
 
 
 	XInitThreads();
 	display = XOpenDisplay("");
 	window = XCreateSimpleWindow(display, XDefaultRootWindow(display), 0, 0, 800, 600, 1, 0, 0);
 	XSelectInput(display, window, ExposureMask|ButtonPressMask);
+	hints.min_width = 800;
+	hints.min_height = 600;
 	hints.max_width = 800;
 	hints.max_height = 600;
-	hints.flags = PMaxSize;
-	XSetStandardProperties(display, window, "nullify", NULL, stdpixmap, argv, argc, &hints);
+	hints.flags = PMinSize|PMaxSize;
+	XReadBitmapFile(display, window, "/usr/local/share/nullify/res/icon.xbm",
+			&iconwidth, &iconheight, &iconpixmap, NULL, NULL);
+	XSetStandardProperties(display, window, PACKAGE_STRING, NULL, iconpixmap, argv, argc, &hints);
 	XMapRaised(display, window);
 
 	gc_white    = XCreateGC(display, window, 0, NULL);
@@ -193,117 +229,142 @@ int main(int argc, char **argv)
 	XSetForeground(display, gc_anim[6],  0xeaf6a9);
 	XSetForeground(display, gc_anim[7],  0xff9d3e);
 
-	player = (struct player_st *)calloc(NPLAYERS, sizeof(struct player_st));
-	if (!player)
-		return -1;
+	strcpy(player[0].name, "Human");
+	strcpy(player[1].name, "Bot_1");
+	strcpy(player[2].name, "Bot_2");
+	strcpy(player[3].name, "Bot_3");
+
+	// Parse the command line options
+	while ((opt = getopt_long(argc, argv, "n:df:sl:t:vh", longoptions, NULL)) != -1) {
+		switch (opt) {
+		case 'n':
+			strncpy(player[0].name, optarg, 19);
+			break;
+		case 'd':
+			show_bot_cards = TRUE;
+			break;
+		case 'f':
+			skipframes = strtol(optarg, NULL, 10);
+			if (skipframes < 1)
+				skipframes = 1;
+			break;
+		case 's':
+			savelog = TRUE;
+			break;
+		case 'l':
+			logfilename = (char *)calloc(1, strlen(optarg) + 1);
+			if (logfilename)
+				strcpy(logfilename, optarg);
+			break;
+		case 't':
+			game_total = strtol(optarg, NULL, 10);
+			if (game_total < 1)
+				game_total = 16;
+			break;
+		case 'v':
+			printf("%s\nPlease report any bug you find to <%s>\n",
+				PACKAGE_STRING, PACKAGE_BUGREPORT);
+			return 0;
+		case 'h':
+		default:
+			goto usage;
+		};
+	}
+
+	// Create the root node of the XML file
+	do_LIBXML_TEST_VERSION;
+	do_xmlNewDoc(xml_logfile, "1.0");
+	do_xmlNewNode(session_node, "session");
+	do_xmlDocSetRootElement(xml_logfile, session_node);
+
+	for (i=0;i<4;i++) {
+		do_xmlNewChild(node, session_node, "player", player[i].name);
+		sprintf(str, "%d", i);
+		do_xmlNewProp(node, "id", str);
+	}
+
+	do_xmlNewNode(game_node, "game");
+	sprintf(str, "%u", ngame);
+	do_xmlNewProp(game_node, "id", str);
+	do_xmlAddChild(session_node, game_node);
 
 	dllst_verbose = 0;
-	resource = (struct resource_st *)calloc(NRESOURCES, sizeof(struct resource_st));
-	if (resource) {
-		for (i=0;i<4;i++) {
-			strcpy(filename, "/usr/local/share/nullify/cards/");
-			switch (i) {
-			case 0:
-				strcat(filename, "c");
-				break;
-			case 1:
-				strcat(filename, "d");
-				break;
-			case 2:
-				strcat(filename, "h");
-				break;
-			case 3:
-				strcat(filename, "p");
-				break;
-			};
+	for (i=0;i<4;i++) {
+		strcpy(filename, "/usr/local/share/nullify/res/");
+		switch (i) {
+		case 0:
+			strcat(filename, "suit-clubs.png");
+			break;
+		case 1:
+			strcat(filename, "suit-diamonds.png");
+			break;
+		case 2:
+			strcat(filename, "suit-hearts.png");
+			break;
+		case 3:
+			strcat(filename, "suit-spades.png");
+			break;
+		};
 
-			for (j=0;j<13;j++) {
-				sprintf(&filename[32], "%02d.png", j + 1);
-				load_resource(&resource[i * 13 + j], filename);
-			}
-		}
-
-		load_resource(&resource[RES_PLAYING_DISABLED], "/usr/local/share/nullify/res/playing_disabled.png");
-		load_resource(&resource[RES_PLAYING_ENABLED], "/usr/local/share/nullify/res/playing_enabled.png");
-		load_resource(&resource[RES_CLOVERS], "/usr/local/share/nullify/res/clovers.png");
-		load_resource(&resource[RES_DIAMONDS], "/usr/local/share/nullify/res/diamonds.png");
-		load_resource(&resource[RES_HEARTS], "/usr/local/share/nullify/res/hearts.png");
-		load_resource(&resource[RES_PICAS], "/usr/local/share/nullify/res/picas.png");
-		load_resource(&resource[RES_CLOVERS_INV], "/usr/local/share/nullify/res/clovers-inv.png");
-		load_resource(&resource[RES_DIAMONDS_INV], "/usr/local/share/nullify/res/diamonds-inv.png");
-		load_resource(&resource[RES_HEARTS_INV], "/usr/local/share/nullify/res/hearts-inv.png");
-		load_resource(&resource[RES_PICAS_INV], "/usr/local/share/nullify/res/picas-inv.png");
-		load_resource(&resource[RES_ARROW_CW], "/usr/local/share/nullify/res/arrow-cw.png");
-		load_resource(&resource[RES_ARROW_CCW], "/usr/local/share/nullify/res/arrow-ccw.png");
-		load_resource(&resource[RES_DECK], "/usr/local/share/nullify/res/deck.png");
+		for (j=0;j<13;j++)
+			load_resource(&resource[i * 13 + j], filename, j * CARD_WIDTH, CARD_WIDTH);
+		memset(filename, '\0', 96);
 	}
+	load_resource(&resource[RES_PLAYING_DISABLED], "/usr/local/share/nullify/res/playing_disabled.png", -1, -1);
+	load_resource(&resource[RES_PLAYING_ENABLED], "/usr/local/share/nullify/res/playing_enabled.png", -1, -1);
+	load_resource(&resource[RES_CLUBS], "/usr/local/share/nullify/res/clubs.png", -1, -1);
+	load_resource(&resource[RES_DIAMONDS], "/usr/local/share/nullify/res/diamonds.png", -1, -1);
+	load_resource(&resource[RES_HEARTS], "/usr/local/share/nullify/res/hearts.png", -1, -1);
+	load_resource(&resource[RES_SPADES], "/usr/local/share/nullify/res/spades.png", -1, -1);
+	load_resource(&resource[RES_CLUBS_INV], "/usr/local/share/nullify/res/clubs-inv.png", -1, -1);
+	load_resource(&resource[RES_DIAMONDS_INV], "/usr/local/share/nullify/res/diamonds-inv.png", -1, -1);
+	load_resource(&resource[RES_HEARTS_INV], "/usr/local/share/nullify/res/hearts-inv.png", -1, -1);
+	load_resource(&resource[RES_SPADES_INV], "/usr/local/share/nullify/res/spades-inv.png", -1, -1);
+	load_resource(&resource[RES_ARROW_CW], "/usr/local/share/nullify/res/arrow-cw.png", -1, -1);
+	load_resource(&resource[RES_ARROW_CCW], "/usr/local/share/nullify/res/arrow-ccw.png", -1, -1);
+	load_resource(&resource[RES_DECK], "/usr/local/share/nullify/res/deck.png", -1, -1);
+	load_resource(&resource[RES_DECK_LOCKED], "/usr/local/share/nullify/res/deck-locked.png", -1, -1);
 
 	card_row[0] = 600 - CARD_HEIGHT - 10;
 	card_row[2] = 10;
 	playing_x[HUMAN] = (800 - 32) / 2;
 	playing_y[HUMAN] = card_row[HUMAN] - 56;
-	playing_x[CPU1]  = CARD_WIDTH + 32;
-	playing_y[CPU1]  = (600 - 32) / 2;
-	playing_x[CPU2]  = (800 - 32) / 2;
-	playing_y[CPU2]  = card_row[CPU1] + 125;
-	playing_x[CPU3]  = 800 - CARD_WIDTH - 10 - 64;
-	playing_y[CPU3]  = (600 - 32) / 2;
+	playing_x[BOT_1]  = CARD_WIDTH + 32;
+	playing_y[BOT_1]  = (600 - 32) / 2;
+	playing_x[BOT_2]  = (800 - 32) / 2;
+	playing_y[BOT_2]  = card_row[BOT_1] + 125;
+	playing_x[BOT_3]  = 800 - CARD_WIDTH - 10 - 64;
+	playing_y[BOT_3]  = (600 - 32) / 2;
 
-	srand(time(NULL));
-	sev.sigev_notify = SIGEV_THREAD;
-	sev.sigev_notify_function = do_timer;
-	sev.sigev_value.sival_int = 1;
-	timer_create(CLOCK_REALTIME, &sev, &deck_timer);
-	sev.sigev_value.sival_int = 2;
-	timer_create(CLOCK_REALTIME, &sev, &playing_timer);
-	sev.sigev_value.sival_int = 3;
-	timer_create(CLOCK_REALTIME, &sev, &table_timer);
+	do_timer_prepare(&deck_timer, do_timer, 1);
+	do_timer_prepare(&playing_timer, do_timer, 2);
+	do_timer_prepare(&table_timer, do_timer, 3);
+
+	atexit(do_exit);
 
 	XNextEvent(display, &event);
 	if (event.type == Expose) {
-		dialog = gui_newdialog(display, window, "nullify", 60, 80, 680, 450);
-		gui_addlabel(display, window, dialog, "nullify is a turn-based cards videogame which goal is to get rid of all cards in hand", 0, 16);
-		gui_addlabel(display, window, dialog, "(initially 5 cards). There are no winners, but a looser: last player who could not get rid of his/her cards.", 0, 32);
-		gui_addlabel(display, window, dialog, "Main rule", 0, 48);
-		gui_addlabel(display, window, dialog, "=========", 0, 64);
-		gui_addlabel(display, window, dialog, "When in turn, the player must either play a card of the same kind / number as last card played", 0, 80);
-		gui_addlabel(display, window, dialog, "or pick up one card from the deck. If is not possible play the new card because it mismatches kind or", 0, 96);
-		gui_addlabel(display, window, dialog, "number, you must to do right-click over the deck and the turn is updated to the next player.", 0, 112);
-		gui_addlabel(display, window, dialog, "Quick reference of special cards (see README for further explanations)", 0, 128);
-		gui_addlabel(display, window, dialog, "======================================================================", 0, 144);
-		gui_addlabel(display, window, dialog, "Ace and two", 0, 160);
-		gui_addlabel(display, window, dialog, "-----------", 0, 176);
-		gui_addlabel(display, window, dialog, "Each time a player dispatches an 'A' or '2', the next player in turn will be", 0, 192);
-		gui_addlabel(display, window, dialog, "forced to get up to 4 or 2 cards from the deck, respectively.", 0, 208);
-		gui_addlabel(display, window, dialog, "Four and seven", 0, 224);
-		gui_addlabel(display, window, dialog, "--------------", 0, 240);
-		gui_addlabel(display, window, dialog, "Whether a '4' or '7' is played, another card of the same kind / number must be played.", 0, 256);
-		gui_addlabel(display, window, dialog, "Jocker ('J')", 0, 272);
-		gui_addlabel(display, window, dialog, "------------", 0, 288);
-		gui_addlabel(display, window, dialog, "Likewise, but also the player can select the kind of cards to play.", 0, 304);
-		gui_addlabel(display, window, dialog, "Queen", 0, 320);
-		gui_addlabel(display, window, dialog, "-----", 0, 336);
-		gui_addlabel(display, window, dialog, "Whether a 'Q' is played, the most immediate player in turn is skipped.", 0, 352);
-		gui_addlabel(display, window, dialog, "King", 0, 368);
-		gui_addlabel(display, window, dialog, "----", 0, 384);
-		gui_addlabel(display, window, dialog, "Whether a 'K' is played, rotation mode is toggled clockwise/counter-clockwise", 0, 400);
-		gui_addlabel(display, window, dialog, "Have fun ;-)", 0, 416);
-		newround_button = gui_addbutton(display, window, dialog, "Start", 620, 400);
-		round_finished = TRUE;
+		dialog = gui_newdialog(display, window, "Nullify", 60, 80, 680, 450);
+		print_rules(dialog, "/usr/local/share/nullify/res/rules.txt");
+		newhand_button = gui_addbutton(dialog, "Start", 620, 400);
+		hand_finished = TRUE;
+		cardpixmap = XCreatePixmap(display, window, CARD_WIDTH, CARD_HEIGHT,
+					  XDefaultScreenOfDisplay(display)->root_depth);
 	}
 
+	// X main loop
 	while (1) {
 		if (XCheckMaskEvent(display, ExposureMask|ButtonPressMask, &event)) {
 			switch(event.type) {
 			case Expose:
-				if (newround_button || newgame_button)
-					init_round();
+				if (newhand_button || newgame_button)
+					init_hand();
 				if (!event.xexpose.count)
 					do_exposure(&event.xexpose);
 
-				round_finished = FALSE;
-				free(newround_button);
-				newround_button = NULL;
+				hand_finished = FALSE;
+				free(newhand_button);
+				newhand_button = NULL;
 				free(newgame_button);
 				newgame_button = NULL;
 				break;
@@ -314,38 +375,36 @@ int main(int argc, char **argv)
 		}
 	}
 
-	while (dllst_delitem(deck_list, 0)) {}
-	free(deck_list);
-	while (dllst_delitem(played_list, 0)) {}
-	free(played_list);
-	for (i=0;i<NPLAYERS;i++) {
-		while (dllst_delitem(player[i].list, 0)) {}
-		free(player[i].list);
-	}
-	free(player);
-	for (i=0;i<NRESOURCES;i++) {
-		free(resource[i].bytes);
-		free(resource[i].color);
-	}
-	free(resource);
-	XFreeGC(display, gc_white);
-	XFreeGC(display, gc_black);
-	XFreeGC(display, gc_table);
-	XFreeGC(display, gc_selector);
-	for (i=0;i<8;i++)
-		XFreeGC(display, gc_anim[i]);
-	XDestroyWindow(display, window);
-	XFlush(display);
-	XCloseDisplay(display);
-	exit(0);
+usage:
+	printf("%s\n", PACKAGE_STRING);
+	printf("Usage: %s [options]\n", PACKAGE);
+	printf("Available options are:\n");
+	printf("  -n --name=<yourname>     Set your name to something other than \"Human\"\n");
+	printf("  -d --debug               It allows show the cards of the bots\n");
+	printf("  -f --skipframes=<n>      Set the amount of frames to skip during animations.\n");
+	printf("                           <n> must be an integer different than zero\n");
+	printf("\n");
+	printf("  -s --savelog             Save the session log when the game exits (it must have\n");
+	printf("                           been compiled with the --enable-xml-logs=yes option)\n");
+	printf("\n");
+	printf("  -l --logfile=<filename>  Save the session log to <filename> rather than\n");
+	printf("                           to the default file \".nullify-session.xml\"\n");
+	printf("\n");
+	printf("  -t --total=<n>           Specify play each game up to <n> points is to be reached\n");
+	printf("                           (default = 16)\n");
+	printf("  -v --version             Print the program version and exit\n");
+	printf("  -h --help                Display this message\n");
+	return -1;
 }
 
 /*
  *
- * Load png-image @filename and store it in @res.
+ * Load png-image @filename and store it in @res. @xoffset and @stop, if given
+ * other than -1, allow load the subimage starting at (@xoffset, 0) and ending at
+ * (@xoffset + @stop, image-height) coordinates.
  *
  */
-int load_resource(struct resource_st *res, const char *filename)
+int load_resource(struct resource_st *res, const char *filename, int xoffset, int stop)
 {
 	int x, y;
 	FILE *fileptr;
@@ -357,6 +416,8 @@ int load_resource(struct resource_st *res, const char *filename)
 	} fields2 = { 0 };
 	png_structp png_ptr   = NULL;
 	png_infop png_infoptr = NULL;
+	png_bytepp subimage = NULL;
+	unsigned width, height;
 
 
 	fileptr = fopen(filename, "rb");
@@ -370,14 +431,24 @@ int load_resource(struct resource_st *res, const char *filename)
 	png_init_io(png_ptr, fileptr);
 	png_read_info(png_ptr, png_infoptr);
 
-	res->bytes = (png_bytepp)malloc(png_infoptr->height * sizeof(png_bytep));
+// This should work on the most of the systems. See BUGS for further information.
+#if PNG_LIBPNG_VER >= 10500
+	// libpng-1.5.0+
+	width = png_get_image_width(png_ptr, png_infoptr);
+	height = png_get_image_height(png_ptr, png_infoptr);
+#else
+	width = png_infoptr->width;
+	height = png_infoptr->height;
+#endif
+
+	res->bytes = (png_bytepp)malloc(height * sizeof(png_bytep));
 	if (!res->bytes) {
 		perror("malloc");
 		return -1;
 	}
-
-	for (y=0;y<png_infoptr->height;y++) {
-		res->bytes[y] = (png_bytep)malloc(png_infoptr->width * 3);
+	
+	for (y=0;y<height;y++) {
+		res->bytes[y] = (png_bytep)malloc(width * 3);
 		if (!res->bytes[y]) {
 			perror("malloc");
 			return -1;
@@ -386,9 +457,59 @@ int load_resource(struct resource_st *res, const char *filename)
 	png_read_image(png_ptr, res->bytes);
 	png_read_end(png_ptr, png_infoptr);
 
+	if (xoffset < width && stop != -1) {
+		subimage = (png_bytepp)malloc(height * sizeof(png_bytep));
+		if (!subimage) {
+			perror("malloc");
+			return -1;
+		}
+
+		for (y=0;y<height;y++) {
+			subimage[y] = (png_bytep)malloc(stop * 3);
+			if (!subimage[y]) {
+				perror("malloc");
+				return -1;
+			}
+		}
+
+		for (y=0;y<height;y++)
+			for (x=0;x<stop * 3;x++)
+				subimage[y][x] = res->bytes[y][xoffset * 3 + x];
+
+		for (y=0;y<height;y++) {
+			free(res->bytes[y]);
+			res->bytes[y] = NULL;
+		}
+		free(res->bytes);
+		res->bytes = NULL;
+
+		res->bytes = (png_bytepp)malloc(height * sizeof(png_bytep));
+		if (!res->bytes) {
+			perror("malloc");
+			return -1;
+		}
+		
+		for (y=0;y<height;y++) {
+			res->bytes[y] = (png_bytep)malloc(stop * 3);
+			if (!res->bytes[y]) {
+				perror("malloc");
+				return -1;
+			}
+		}
+
+		for (y=0;y<height;y++)
+			for (x=0;x<stop * 3;x++)
+				res->bytes[y][x] = subimage[y][x];
+
+		for (y=0;y<height;y++)
+			free(subimage[y]);
+		free(subimage);
+		width = stop;
+	}
+
 	dllst = dllst_initlst(dllst, "I:");
-	for (y=0;y<png_infoptr->height;y++) {
-		for (x=0;x<png_infoptr->width * 3;x+=3) {
+	for (y=0;y<height;y++) {
+		for (x=0;x<width * 3;x+=3) {
 			fields2.color = (res->bytes[y][x + 2] <<  0)|
 					(res->bytes[y][x + 1] <<  8)|
 					(res->bytes[y][x + 0] << 16);
@@ -397,8 +518,8 @@ int load_resource(struct resource_st *res, const char *filename)
 		}
 	}
 
-	res->height = png_infoptr->height;
-	res->width  = png_infoptr->width;
+	res->height = height;
+	res->width  = width;
 	res->ncolors = dllst->size;
 	res->color = (GC *)malloc(dllst->size * sizeof(GC));
 	if (!res->color) {
@@ -455,12 +576,15 @@ void render_resource(struct resource_st *res, int X, int Y)
 void init_deck(void)
 {
 	int i, j;
+	char card[4] = { '\0' };
+	char buf[192] = { '\0' };
+	dllst_item_struct_t *iter;
 
 
 	deck_list = dllst_initlst(deck_list, "I:I:");
 	for (i=0;i<4;i++) {
 		for (j=0;j<13;j++) {
-			fields.kind = (unsigned int)i;
+			fields.suit = (unsigned int)i;
 			fields.number = (unsigned int)j;
 			dllst_newitem(deck_list, &fields);
 		}
@@ -472,7 +596,45 @@ void init_deck(void)
 	for (i=0;i<52;i++)
 		dllst_swapitems(deck_list, i, rand() % 52);
 
+	for (iter=deck_list->head;iter;iter=iter->next) {
+		sprintf(card, "%02d ", CARD_SUIT(iter) * 13 + CARD_NUMBER(iter));
+		strcat(buf, card);
+	}
+
+	do_xmlNewNode(node, "deck");
+	do_xmlNewProp(node, "list", buf);
+	do_xmlAddChild(hand_node, node);
+
 	getatmost = 0;
+}
+
+/*
+ *
+ * Prevent the deck from being clicked and display a big "X" on it.
+ *
+ */
+void lock_deck(void)
+{
+	del_selector(&resource[RES_DECK], DECK_X + CARD_WIDTH / 2, CARD_WIDTH / 2, DECK_Y);
+
+	render_resource(&resource[RES_DECK_LOCKED], DECK_X, DECK_Y);
+	resource[RES_DECK_LOCKED].region.x0 = DECK_X;
+	resource[RES_DECK_LOCKED].region.y0 = DECK_Y;
+	resource[RES_DECK_LOCKED].region.x1 = DECK_X + CARD_WIDTH;
+	resource[RES_DECK_LOCKED].region.y1 = DECK_Y + CARD_HEIGHT;
+}
+
+/*
+ *
+ * Enable clicks on deck coordinates and display "Tux" on it.
+ *
+ */
+void unlock_deck(void)
+{
+	del_selector(&resource[RES_DECK_LOCKED], DECK_X + CARD_WIDTH / 2, CARD_WIDTH / 2, DECK_Y);
+
+	render_resource(&resource[RES_DECK], DECK_X, DECK_Y);
+	add_selector(&resource[RES_DECK], DECK_X + CARD_WIDTH / 2, CARD_WIDTH / 2, DECK_Y);
 }
 
 /*
@@ -483,56 +645,94 @@ void init_deck(void)
 int init_players(int n)
 {
 	int i, j;
+	char card[4] = { '\0' };
+	char buf[32] = { '\0' };
+	char str[64] = { '\0' };
+	dllst_item_struct_t *iter;
 
 
 	for (i=0;i<n;i++) {
-		// Player is active in the current round (i.e., this bot can play cards when in turn)
+		// Player is active in the current hand (i.e., this bot can play cards when in turn)
 		player[i].active = TRUE;
 
 		player[i].list = dllst_initlst(player[i].list, "I:I:");
 		for (j=0;j<5;j++) {
-			fields.kind   = CARD_KIND(deck_list->head);
+			fields.suit   = CARD_SUIT(deck_list->head);
 			fields.number = CARD_NUMBER(deck_list->head);
 			dllst_newitem(player[i].list, &fields);
 
 			// Delete the first item (top card) of deck_list
 			dllst_delitem(deck_list, 0);
 		}
+
+		sprintf(str, "%d", i);
+
+		for (iter=player[i].list->head;iter;iter=iter->next) {
+			sprintf(card, "%02d ", CARD_SUIT(iter) * 13 + CARD_NUMBER(iter));
+			strcat(buf, card);
+		}
+
+		do_xmlNewNode(node, "playerlist");
+		do_xmlNewProp(node, "id", str);
+		do_xmlNewProp(node, "list", buf);
+		do_xmlAddChild(hand_node, node);
+
+		for (j=0;j<strlen(buf);j++)
+			buf[j] = '\0';
 	}
 
 	return 0;
 }
 
-void init_round(void)
+void init_hand(void)
 {
+	long now;
+	char str[64] = { '\0' };
+
+
+	now = time(NULL);
+	srand(now);
+
+	do_xmlNewNode(hand_node, "hand");
+	sprintf(str, "%u", nhand);
+	do_xmlNewProp(hand_node, "id", str);
+	sprintf(str, "0x%016lX", now);
+	do_xmlNewProp(hand_node, "rseed", str);
+	do_xmlAddChild(game_node, hand_node);
+
 	init_deck();
 	init_players(NPLAYERS);
-	its.it_value.tv_sec = 0;
-	its.it_value.tv_nsec = 0;
-	timer_settime(deck_timer, TIMER_ABSTIME, &its, NULL);
-	timer_settime(playing_timer, TIMER_ABSTIME, &its, NULL);
-	timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
+
+	do_timer_unset(deck_timer);
+	do_timer_unset(playing_timer);
+	do_timer_unset(table_timer);
 
 	played_list = dllst_initlst(played_list, "I:I:");
-	fields.kind   = CARD_KIND(deck_list->head);
+	fields.suit   = CARD_SUIT(deck_list->head);
 	fields.number = CARD_NUMBER(deck_list->head);
 	dllst_newitem(played_list, &fields);
 	dllst_delitem(deck_list, 0);
 
 	turn = HUMAN;
 	getatmost = 0;
-	lastkind = CARD_KIND(played_list->tail);
+	lastsuit = CARD_SUIT(played_list->tail);
 	rotation = 1;
+
+	printf("%s:\n", player[turn].name);
+
+	do_xmlNewNode(turn_node, "turn");
+	do_xmlNewProp(turn_node, "id", "0");
+	do_xmlAddChild(hand_node, turn_node);
 }
 
 /*
  *
- * Calculate probabilities for each kind / number of card in card list of the bot.
- * Bots select the card to play based on the kind/number of the card with less
+ * Calculate probabilities for each suit / number of card in card list of the bot.
+ * Bots select the card to play based on the suit/number of the card with less
  * probability than others.
  *
  */
-void calc_probabilities(int n)
+void bot_calc_probabilities(int n)
 {
 	int i;
 	unsigned counter[17];
@@ -559,14 +759,14 @@ void calc_probabilities(int n)
 
 	for (i=0;i<4;i++) {
 		for (iter=player[n].list->head;iter;iter=iter->next)
-			if (CARD_KIND(iter) == i)
+			if (CARD_SUIT(iter) == i)
 				counter[i + 13]--;
 		for (iter=played_list->head;iter;iter=iter->next)
-			if (CARD_KIND(iter) == i)
+			if (CARD_SUIT(iter) == i)
 				counter[i + 13]--;
 	}
 
-	// probabilities for the 4 kinds
+	// probabilities for the 4 suits
 	for (i=13;i<17;i++)
 		player[n].probabilities[i] = (float)counter[i] / (float)13.0;
 }
@@ -633,7 +833,7 @@ void update_cards(int nplayer, action_t act, void *param)
 	dllst_item_struct_t *iter;
 
 
-	if (nplayer == HUMAN || nplayer == CPU2) {
+	if (nplayer == HUMAN || nplayer == BOT_2) {
 		if (player[nplayer].list->size > 5) {
 			sep = (CARD_WIDTH + 7) * 5 / player[nplayer].list->size;
 			xstart = (800 - 400) / 2;
@@ -645,14 +845,22 @@ void update_cards(int nplayer, action_t act, void *param)
 		for (i=0,iter=player[nplayer].list->head;iter;iter=iter->next,i++) {
 			XFillRectangle(display, window, gc_table,
 				       i * sep + xstart, card_row[nplayer], CARD_WIDTH, CARD_HEIGHT);
-			if (nplayer == HUMAN)
-				del_selector(&resource[CARD_KIND(iter) * 13 + CARD_NUMBER(iter)],
-					     i * sep + xstart + sep / 2,
-					     sep / 2,
-					     card_row[nplayer]);
+			if (nplayer == HUMAN) {
+				if (!iter->next) {
+					del_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+						     i * sep + xstart + CARD_WIDTH / 2,
+						     CARD_WIDTH / 2,
+						     card_row[HUMAN]);
+				} else {
+					del_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+						     i * sep + xstart + sep / 2,
+						     sep / 2,
+						     card_row[HUMAN]);
+				}
+			}
 		}
 	} else {
-		if (nplayer == CPU1)
+		if (nplayer == BOT_1)
 			xstart = 10;
 		else
 			xstart = 800 - CARD_WIDTH - 10;
@@ -676,7 +884,7 @@ void update_cards(int nplayer, action_t act, void *param)
 		break;
 	};
 
-	if (nplayer == HUMAN || nplayer == CPU2) {
+	if (nplayer == HUMAN || nplayer == BOT_2) {
 		if (player[nplayer].list->size > 5) {
 			sep = (CARD_WIDTH + 7) * 5 / player[nplayer].list->size;
 			xstart = (800 - 400) / 2;
@@ -686,39 +894,65 @@ void update_cards(int nplayer, action_t act, void *param)
 		}
 
 		for (i=0,iter=player[nplayer].list->head;iter;iter=iter->next,i++) {
-			if (nplayer == HUMAN)
-				render_resource(&resource[CARD_KIND(iter) * 13 + CARD_NUMBER(iter)],
+			if (nplayer == HUMAN) {
+				render_resource(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
 					    i * sep + xstart, card_row[nplayer]);
-			else
-				render_resource(&resource[RES_DECK], i * sep + xstart, card_row[nplayer]);
+			} else {
+				if (show_bot_cards)
+					render_resource(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+						    i * sep + xstart, card_row[nplayer]);
+				else
+					render_resource(&resource[RES_DECK], i * sep + xstart, card_row[nplayer]);
+			}
 			if (nplayer == HUMAN) {
 				if (act == GET_CARD) {
-					if (CARD_NUMBER(iter) == CARD_TWO(0) ||
-					    CARD_NUMBER(iter) == CARD_TWO(1) ||
-					    CARD_NUMBER(iter) == CARD_TWO(2) ||
-					    CARD_NUMBER(iter) == CARD_TWO(3) ||
-					    CARD_NUMBER(iter) == CARD_ACE(0) ||
-					    CARD_NUMBER(iter) == CARD_ACE(1) ||
-					    CARD_NUMBER(iter) == CARD_ACE(2) ||
-					    CARD_NUMBER(iter) == CARD_ACE(3)) {
-						add_selector(&resource[CARD_KIND(iter) * 13 + CARD_NUMBER(iter)],
-							     i * sep + xstart + sep / 2,
-							     sep / 2,
-							     card_row[nplayer]);
+					if (CARD_NUMBER(iter) == CARD_TWO(SUIT_CLUBS)    ||
+					    CARD_NUMBER(iter) == CARD_TWO(SUIT_DIAMONDS) ||
+					    CARD_NUMBER(iter) == CARD_TWO(SUIT_HEARTS)   ||
+					    CARD_NUMBER(iter) == CARD_TWO(SUIT_SPADES)   ||
+					    CARD_NUMBER(iter) == CARD_ACE(SUIT_CLUBS)    ||
+					    CARD_NUMBER(iter) == CARD_ACE(SUIT_DIAMONDS) ||
+					    CARD_NUMBER(iter) == CARD_ACE(SUIT_HEARTS)   ||
+					    CARD_NUMBER(iter) == CARD_ACE(SUIT_SPADES)) {
+						if (!iter->next) {
+							add_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+								     i * sep + xstart + CARD_WIDTH / 2,
+								     CARD_WIDTH / 2,
+								     card_row[HUMAN]);
+						} else {
+							add_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+								     i * sep + xstart + sep / 2,
+								     sep / 2,
+								     card_row[HUMAN]);
+						}
 					}
 					continue;
 				}
 
-				if (CARD_KIND(iter) == lastkind ||
-				    CARD_NUMBER(iter) == CARD_NUMBER(played_list->tail))
-					add_selector(&resource[CARD_KIND(iter) * 13 + CARD_NUMBER(iter)],
-						     i * sep + xstart + sep / 2,
-						     sep / 2,
-						     card_row[nplayer]);
+				if (CARD_SUIT(iter) == lastsuit ||
+				    CARD_NUMBER(iter) == CARD_NUMBER(played_list->tail)) {
+					if (!iter->next) {
+
+						/*
+						 * This is the last card of the list. We add a slightly modified
+						 * selector to allow to the user select this card from
+						 * (x - CARD_WIDTH / 2) <= mouse_x <= (x + CARD_WIDTH / 2)
+						 */
+						add_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+							     i * sep + xstart + CARD_WIDTH / 2,
+							     CARD_WIDTH / 2,
+							     card_row[HUMAN]);
+					} else {
+						add_selector(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+							     i * sep + xstart + sep / 2,
+							     sep / 2,
+							     card_row[HUMAN]);
+					}
+				}
 			}
 		}
 	} else {
-		if (nplayer == CPU1)
+		if (nplayer == BOT_1)
 			xstart = 10;
 		else
 			xstart = 800 - CARD_WIDTH - 10;
@@ -729,15 +963,21 @@ void update_cards(int nplayer, action_t act, void *param)
 			sep = (600 - 5 * (CARD_HEIGHT + 3)) / 2;
 		}
 
-		for (i=0;i<player[nplayer].list->size;i++)
-			render_resource(&resource[RES_DECK], xstart, i * sep + 150);
+		if (!show_bot_cards) {
+			for (i=0;i<player[nplayer].list->size;i++)
+				render_resource(&resource[RES_DECK], xstart, i * sep + 150);
+		} else {
+			for (i=0,iter=player[nplayer].list->head;iter;iter=iter->next,i++)
+				render_resource(&resource[CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)],
+					    xstart, i * sep + 150);
+		}
 	}
 }
 
 /*
  *
- * Update the status of the kind selectors and prepare their regions to be clicked
- * by the human player as long as last card played is a jocker.
+ * Update the status of the suit selectors and prepare their regions to be clicked
+ * by the human player as long as last card played is a jack.
  *
  */
 void update_table(action_table_t act)
@@ -745,31 +985,28 @@ void update_table(action_table_t act)
 	int i;
 
 
-	if (act == EXPOSURE_KIND) {
+	if (act == EXPOSURE_SUIT) {
 		for (i=0;i<4;i++)
-			if (i == lastkind)
-				render_resource(&resource[RES_KIND_BASE_INV + i], KIND_X, KIND_Y(i));
+			if (i == lastsuit)
+				render_resource(&resource[RES_SUIT_BASE_INV + i], SUIT_X, SUIT_Y(i));
 			else
-				render_resource(&resource[RES_KIND_BASE + i], KIND_X, KIND_Y(i));
-	} else if (act == SELECT_KIND) {
+				render_resource(&resource[RES_SUIT_BASE + i], SUIT_X, SUIT_Y(i));
+	} else if (act == SELECT_SUIT) {
 		for (i=0;i<4;i++) {
-			resource[RES_KIND_BASE + i].region.x0 = KIND_X;
-			resource[RES_KIND_BASE + i].region.y0 = KIND_Y(i);
-			resource[RES_KIND_BASE + i].region.x1 = KIND_X + resource[RES_KIND_BASE + i].width;
-			resource[RES_KIND_BASE + i].region.y1 = KIND_Y(i) + resource[RES_KIND_BASE + i].height;
+			resource[RES_SUIT_BASE + i].region.x0 = SUIT_X;
+			resource[RES_SUIT_BASE + i].region.y0 = SUIT_Y(i);
+			resource[RES_SUIT_BASE + i].region.x1 = SUIT_X + resource[RES_SUIT_BASE + i].width;
+			resource[RES_SUIT_BASE + i].region.y1 = SUIT_Y(i) + resource[RES_SUIT_BASE + i].height;
 		}
-		its.it_interval.tv_sec = its.it_value.tv_sec = 0;
-		its.it_interval.tv_nsec = its.it_value.tv_nsec = 125000000;
-		timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
+		do_timer_set(table_timer, 0, 125000000);
 	} else if (act == SELECT_NONE) {
 		for (i=0;i<4;i++) {
-			resource[RES_KIND_BASE + i].region.x0 = -1;
-			resource[RES_KIND_BASE + i].region.y0 = -1;
-			resource[RES_KIND_BASE + i].region.x1 = -1;
-			resource[RES_KIND_BASE + i].region.y1 = -1;
+			resource[RES_SUIT_BASE + i].region.x0 = -1;
+			resource[RES_SUIT_BASE + i].region.y0 = -1;
+			resource[RES_SUIT_BASE + i].region.x1 = -1;
+			resource[RES_SUIT_BASE + i].region.y1 = -1;
 		}
-		its.it_value.tv_sec = its.it_value.tv_nsec = 0;
-		timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
+		do_timer_unset(table_timer);
 	}
 }
 
@@ -779,7 +1016,7 @@ void update_table(action_table_t act)
  * toggled clockwise / counter-clockwise by playing a king. Skipping mode is automatically
  * set if last card played was a queen, so that the turn is incremented or decremented twice
  * (e.g., rotation mode is set to ccw and turn is currently set to HUMAN; he/she plays a queen,
- * then the next players in turn are CPU2, CPU1, HUMAN, CPU3, etc).
+ * then the next players in turn are BOT_2, BOT_1, HUMAN, BOT_3, etc).
  *
  */
 void update_turn(int flags)
@@ -821,43 +1058,253 @@ void update_turn(int flags)
 		turn %= NPLAYERS;
 	}
 	render_resource(&resource[RES_PLAYING_ENABLED], playing_x[turn], playing_y[turn]);
+
+	printf("%s:\n", player[turn].name);
+}
+
+/*
+ *
+ * Get a human readable string corresponding to the card of suit @suit
+ * and number @number. If @addnode is TRUE, a node is added to the XML
+ * session file. The converse mode of operation of this function is also
+ * supported: see misc.c:decode_card_rev() for more detail.
+ *
+ */
+char *decode_card(int suit, int number, boolean_t addnode)
+{
+	char card[4] = { '\0' }, *buf = NULL;
+
+
+	buf = (char *)calloc(1, 4);
+	if (!buf)
+		return NULL;
+
+	sprintf(card, "%2d", (number & 0xff) + 1);
+	switch (number) {
+	case 0:
+		card[0] = ' ';
+		card[1] = 'A';
+		break;
+	case 10:
+		card[0] = ' ';
+		card[1] = 'J';
+		break;
+	case 11:
+		card[0] = ' ';
+		card[1] = 'Q';
+		break;
+	case 12:
+		card[0] = ' ';
+		card[1] = 'K';
+		break;
+	};
+
+	switch (suit) {
+	case SUIT_CLUBS:
+		strcat(card, "c");
+		break;
+	case SUIT_DIAMONDS:
+		strcat(card, "d");
+		break;
+	case SUIT_HEARTS:
+		strcat(card, "h");
+		break;
+	case SUIT_SPADES:
+		strcat(card, "s");
+		break;
+	};
+
+	sprintf(buf, "%s", card);
+	if (addnode) {
+		printf("\t%s\n", buf);
+		do_xmlNewChild(node, turn_node, "card", buf);
+	}
+
+	return buf;
+}
+
+/*
+ *
+ * Render animated moves when the player @nplayer either gets a card from
+ * the deck or plays the card of suit @suit and number @number. In the latter
+ * case, @isplaying must be supplied as TRUE.
+ *
+ */
+void animate_card(int nplayer, boolean_t isplaying, int suit, int number)
+{
+	int i, t, x, y, incr, obj_x = 0, obj_y = 0, start;
+	int dst_x, dst_y, bound;
+	boolean_t (*less_or_greater)(int, int);
+	float slope, sep;
+	dllst_item_struct_t *iter = NULL;
+
+
+	if (nplayer == HUMAN || nplayer == BOT_2) {
+		if (player[nplayer].list->size > 5) {
+			sep = (CARD_WIDTH + 7) * 5 / player[nplayer].list->size;
+			start = (800 - 400) / 2;
+		} else {
+			sep = CARD_WIDTH + 7;
+			start = (800 - player[nplayer].list->size * (CARD_WIDTH + 7)) / 2;
+		}
+	} else {
+		if (nplayer == BOT_1)
+			start = 10;
+		else
+			start = 800 - CARD_WIDTH - 10;
+
+		if (player[nplayer].list->size > 5)
+			sep = (600 - 5 * 60) / player[nplayer].list->size;
+		else
+			sep = (600 - 5 * (CARD_HEIGHT + 3)) / 2;
+	}
+
+	if (!isplaying) {
+		if (nplayer == HUMAN || nplayer == BOT_2) {
+			obj_x = start + player[nplayer].list->size * sep;
+			obj_y = nplayer == HUMAN ? card_row[HUMAN] : card_row[BOT_2];
+		} else {
+			obj_x = start;
+			obj_y = 150 + player[nplayer].list->size * sep;
+		}
+	} else {
+		for (i=0,iter=player[nplayer].list->head;iter;iter=iter->next,i++) {
+			if (CARD_SUIT(iter) == suit && CARD_NUMBER(iter) == number) {
+				if (nplayer == HUMAN || nplayer == BOT_2) {
+					obj_x = start + i * sep;
+					obj_y = nplayer == HUMAN ? card_row[HUMAN] : card_row[BOT_2];
+				} else {
+					obj_x = start;
+					obj_y = 150 + i * sep;
+				}
+
+				break;
+			}
+		}
+	}
+
+	if (!isplaying) {
+		dst_x = DECK_X;
+		dst_y = DECK_Y;
+	} else {
+		dst_x = STACK_OF_PLAYED_X;
+		dst_y = STACK_OF_PLAYED_Y;
+	}
+
+	if (obj_x != dst_x) {
+		slope = (float)(obj_y - dst_y) / (float)(obj_x - dst_x);
+		incr = obj_x > dst_x ? 1 : -1;
+		if (dst_x == STACK_OF_PLAYED_X)
+			incr *= (-1);
+		less_or_greater = incr == 1 ? fn_less : fn_greater;
+		bound = dst_x == DECK_X ? (obj_x - dst_x) : (dst_x - obj_x);
+		if (dst_x != DECK_X) {
+			t = dst_x;
+			dst_x = obj_x;
+			obj_x = t;
+			t = dst_y;
+			dst_y = obj_y;
+			obj_y = t;
+		}
+		for (x=0;less_or_greater(x, bound);x+=incr * skipframes) {
+			XCopyArea(display, window, cardpixmap, gc_white,
+				  dst_x + x, dst_y + slope * x, CARD_WIDTH, CARD_HEIGHT, 0, 0);
+			if (!isplaying)
+				render_resource(&resource[RES_DECK], dst_x + x, dst_y + slope * x);
+			else
+				render_resource(&resource[suit * 13 + number], dst_x + x, dst_y + slope * x);
+			XCopyArea(display, cardpixmap, window, gc_white,
+				  0, 0, CARD_WIDTH, CARD_HEIGHT, dst_x + x, dst_y + slope * x);
+		}
+	} else {
+		incr = obj_y > dst_y ? 1 : -1;
+		if (dst_y == STACK_OF_PLAYED_Y)
+			incr *= (-1);
+		less_or_greater = incr == 1 ? fn_less : fn_greater;
+		bound = dst_y == DECK_Y ? (obj_y - dst_y) : (dst_y - obj_y);
+		if (dst_y != DECK_X) {
+			t = dst_y;
+			dst_y = obj_y;
+			obj_y = t;
+			t = dst_x;
+			dst_x = obj_x;
+			obj_x = t;
+		}
+		for (y=0;less_or_greater(y, bound);y+=incr * skipframes) {
+			XCopyArea(display, window, cardpixmap, gc_white,
+				  dst_x, dst_y + y, CARD_WIDTH, CARD_HEIGHT, 0, 0);
+			if (!isplaying)
+				render_resource(&resource[RES_DECK], dst_x, dst_y + y);
+			else
+				render_resource(&resource[suit * 13 + number], dst_x, dst_y + y);
+			XCopyArea(display, cardpixmap, window, gc_white,
+				  0, 0, CARD_WIDTH, CARD_HEIGHT, dst_x, dst_y + y);
+		}
+	}
 }
 
 /*
  *
  * Move one card from the deck to player_list.
- * This function needs to be bugfixed (see below).
  *
  */
 int getcardfromdeck(int nplayer, action_t act)
 {
 	int i;
+	long j;
 
 
 getcard:
 	if (deck_list->size) {
-		fields.kind   = CARD_KIND(deck_list->head);
+		animate_card(nplayer, FALSE, 0, 0);
+
+		fields.suit   = CARD_SUIT(deck_list->head);
 		fields.number = CARD_NUMBER(deck_list->head);
 		dllst_delitem(deck_list, 0);
 		update_cards(nplayer, act, &fields);
-		return fields.kind * 13 + fields.number;
+
+		return fields.suit * 13 + fields.number;
 	} else {
-		its.it_interval.tv_sec = its.it_value.tv_sec = 0;
-		its.it_interval.tv_nsec = its.it_value.tv_nsec = 62500000;
-		timer_settime(deck_timer, TIMER_ABSTIME, &its, NULL);
+		do_timer_set(deck_timer, 0, 62500000);
 		while (played_list->size > 1) {
-			fields.kind   = CARD_KIND(played_list->head);
+			fields.suit   = CARD_SUIT(played_list->head);
 			fields.number = CARD_NUMBER(played_list->head);
 			dllst_delitem(played_list, 0);
 			dllst_newitem(deck_list, &fields);
 		}
+
+		// In order to avoid looping forever when one or more players get
+		// all the available cards from the deck, we need to add the
+		// special 'greedy player' case: that is, the player with more cards
+		// than others looses and his/her cards are put back to the deck.
+		if (!deck_list->size) {
+			for (j=0,i=0;i<NPLAYERS;i++)
+				if (player[i].list->size > j)
+					j = player[i].list->size;
+
+			for (i=0;i<NPLAYERS;i++)
+				if (player[i].list->size == j)
+					break;
+
+			player[i].specialpts += player[i].list->size;
+			player[i].active = FALSE;
+
+			printf("%s:\n\tThese are the cards returning to the deck:\n", player[i].name);
+			for (j=player[i].list->size - 1;j>-1L;j--)
+				playcard(i, CARD_SUIT(player[i].list->tail),
+					    CARD_NUMBER(player[i].list->tail), &j);
+
+			if (getactiveplayers() == 1) {
+				finish_hand();
+				return -1;
+			} else {
+				update_turn(FLAGS_NONE);
+			}
+		}
+
 		for (i=0;i<deck_list->size;i++)
 			dllst_swapitems(deck_list, i, rand() % deck_list->size);
 
-		// In order to avoid looping forever when one or more players get
-		// 'played_list->size - 1' cards from the deck, we need to add the special 'finish round' case:
-		// that is, the player with more cards than others looses and his/her cards are put back
-		// to the deck.
 		goto getcard;
 	}
 }
@@ -867,28 +1314,32 @@ getcard:
  * Move one card from player's list of cards to the stack of played cards.
  *
  */
-void playcard(int n, int kind, int number, unsigned long *param)
+void playcard(int n, int suit, int number, unsigned long *param)
 {
-	fields.kind   = kind;
+	animate_card(n, TRUE, suit, number);
+
+	fields.suit   = suit;
 	fields.number = number;
 	dllst_newitem(played_list, &fields);
-	render_resource(&resource[kind * 13 + number], DECK_PLAYED_X, DECK_PLAYED_Y);
+	render_resource(&resource[suit * 13 + number], STACK_OF_PLAYED_X, STACK_OF_PLAYED_Y);
 	update_cards(n, DELETE_CARD, param);
-	update_table(EXPOSURE_KIND);
+	update_table(EXPOSURE_SUIT);
 
 	if (rotation == -1)
 		render_resource(&resource[RES_ARROW_CCW], ARROW_X, ARROW_Y);
 	else
 		render_resource(&resource[RES_ARROW_CW], ARROW_X, ARROW_Y);
+
+	decode_card(suit, number, TRUE);
 }
 
 /*
  *
- * Bots select the best kind to switch when they play a jocker depending on how much cards of
- * each kind they have.
+ * Bots select the best suit to switch when they play a jack depending on
+ * how much cards of each suit they have.
  *
  */
-int selectbestkind(int n)
+int bot_select_best_suit(int n)
 {
 	int i, ret, count[4] = { 0 };
 	dllst_t *dllst = NULL;
@@ -896,7 +1347,7 @@ int selectbestkind(int n)
 
 
 	for (iter=player[n].list->head;iter;iter=iter->next) {
-		switch (CARD_KIND(iter)) {
+		switch (CARD_SUIT(iter)) {
 		case 0:
 			count[0]++;
 			break;
@@ -914,7 +1365,7 @@ int selectbestkind(int n)
 
 	dllst = dllst_initlst(dllst, "I:I:");
 	for (i=0;i<4;i++) {
-		fields.kind = i;
+		fields.suit = i;
 		fields.number = count[i];
 		dllst_newitem(dllst, &fields);
 	}
@@ -936,14 +1387,28 @@ int selectbestkind(int n)
  * affect the readability of the code.
  *
  */
+#define THIS_CARD	table->names[*((unsigned *)paths->head->fields + t * 2)]
 void bot_play(int n)
 {
-	unsigned long i = 0, j, min, moves = 0, xcard;
+	long i = 0, j, t, id, min, moves = 0, xcard;
+	int ret_suit, ret_number;
+	unsigned cond_row;
 	dllst_item_struct_t *iter;
 	boolean_t cpuplayed = FALSE;
-	dllst_t *alternatives = NULL;
+	dllst_t *alternatives = NULL, *paths = NULL, *conds = NULL;
+	char message[128] = { '\0' }, buf[64] = { '\0' };
+	char *pathstr = NULL;
+	digraph_table_t *table = NULL;
 
 
+	do_xmlNewNode(turn_node, "turn");
+	sprintf(buf, "%d", n);
+	do_xmlNewProp(turn_node, "id", buf);
+	do_xmlAddChild(hand_node, turn_node);
+
+	// Last card played was either an ace or a two. Bots cannot get only
+	// one card from the deck or play an arbitrary card because that
+	// rule is temporarily locked.
 	alternatives = dllst_initlst(alternatives, "I:I:");
 	for (j=0;j<4;j++) {
 		if (CARD_NUMBER(played_list->tail) == CARD_TWO(j) ||
@@ -959,7 +1424,7 @@ void bot_play(int n)
 				    CARD_NUMBER(iter) == CARD_ACE(1) ||
 				    CARD_NUMBER(iter) == CARD_ACE(2) ||
 				    CARD_NUMBER(iter) == CARD_ACE(3)) {
-					fields.kind   = CARD_KIND(iter);
+					fields.suit   = CARD_SUIT(iter);
 					fields.number = CARD_NUMBER(iter);
 					dllst_newitem(alternatives, &fields);
 				}
@@ -973,79 +1438,153 @@ void bot_play(int n)
 		    (CARD_NUMBER(played_list->tail) == CARD_TWO(j) ||
 		     CARD_NUMBER(played_list->tail) == CARD_ACE(j)))
 
-			// There are no alternatives, but last card played was either an ace or a two
+			// There are no alternatives, but last card played
+			// was either an ace or a two
 			goto getmorecards;
 	}
 
+	/*
+	 *
+	 * This is the new algorithm of smart dispatching of cards.
+	 * Bots build a list of all the possible ways of playing in order to
+	 * get rid the greater amount of cards as they can.
+	 * To do so, the first card must match either suit or number
+	 * of the last card played and permit another card can be played after it,
+	 * repeating the process until there is no more special card to play
+	 * (i.e., special cards are 4, 7, jacks and queens under some circumstances).
+	 *
+	 */
 	while (i < 2) {
-playagain:
-		for (iter=player[n].list->head;iter;iter=iter->next) {
+		conds = dllst_initlst(conds, "I:");
+		cond_row = 0;
+		dllst_newitem(conds, &cond_row);
+		table = digraph_create_table(player[n].list);
 
-			// Main rule of the game: each player must put on table one card matching kind or
-			// number as last card played.
-			if (CARD_KIND(iter) == lastkind ||
-			    CARD_NUMBER(iter) == CARD_NUMBER(played_list->tail)) {
-				fields.kind   = CARD_KIND(iter);
-				fields.number = CARD_NUMBER(iter);
-				dllst_newitem(alternatives, &fields);
+		for (j=table->dim;j>0;j--) {
+			paths = digraph_get_paths(table, j, conds);
+			if (!paths->size) {
+				while (dllst_delitem(paths, 0)) {}
+				free(paths);
+				paths = NULL;
+
+				// save an indentation level
+				continue;
 			}
+
+			printf("\tPossible paths of length %ld:\n", j - 1);
+			for (id=0,iter=paths->head;iter;iter=iter->next,id++) {
+
+				pathstr = (char *)calloc(1, paths->fields_no * 7 + 1);
+				if (!pathstr) {
+					printf("Warning: could not allocate paths string\n");
+					break;
+				}
+
+				for (t=1;t<paths->fields_no;t++) {
+					strcat(pathstr, table->names[*((unsigned *)iter->fields + t * 2)]);
+					strcat(pathstr, " ");
+				}
+				do_xmlNewChild(node, turn_node, "possibility", pathstr);
+				sprintf(buf, "%ld", id);
+				do_xmlNewProp(node, "id", buf);
+				printf("\t\t%s\n", pathstr);
+				free(pathstr);
+				pathstr = NULL;
+			}
+
+			for (t=1;t<paths->fields_no;t++) {
+				decode_card_rev(THIS_CARD, &ret_suit, &ret_number);
+
+				for (j=0,iter=player[n].list->head;iter;iter=iter->next,j++)
+					if (CARD_SUIT(iter) == ret_suit && CARD_NUMBER(iter) == ret_number)
+						break;
+
+				if (ret_number == CARD_JACK(ret_suit) % 13)
+					lastsuit = get_suit_selector(THIS_CARD);
+				else
+					lastsuit = ret_suit;
+
+				playcard(n, ret_suit, ret_number, &j);
+
+				if (ret_number == CARD_TWO(ret_suit) % 13) {
+					getatmost += 2;
+					sprintf(message, "New static limit is %d cards", getatmost);
+					printf("\t%s\n", message);
+					do_xmlNewChild(node, turn_node, "msg", message);
+				} else if (ret_number == CARD_ACE(ret_suit) % 13) {
+					getatmost += 4;
+					sprintf(message, "New static limit is %d cards", getatmost);
+					printf("\t%s\n", message);
+					do_xmlNewChild(node, turn_node, "msg", message);
+				}
+
+				if (ret_number == CARD_QUEEN(ret_suit) % 13)
+					update_turn(FLAGS_QUEEN);
+
+				if (ret_number == CARD_KING(ret_suit) % 13)
+					rotation *= (-1);
+
+				cpuplayed = TRUE;
+				moves++;
+			}
+
+			// The player will subtract one point for each four cards played
+			player[n].specialpts -= moves / 4;
+			while (dllst_delitem(paths, 0)) {}
+			free(paths);
+			paths = NULL;
+			break;
 		}
+		digraph_destroy_table(table);
+		while (dllst_delitem(conds, 0)) {}
+		free(conds);
+		conds = NULL;
+		goto fnreturn;
 
 checkalternatives:
 		if (alternatives->size) {
-			calc_probabilities(n);
-			min = CARD_KIND(alternatives->head) * 13 + CARD_NUMBER(alternatives->head);
+			bot_calc_probabilities(n);
+			min = CARD_SUIT(alternatives->head) * 13 + CARD_NUMBER(alternatives->head);
 			for (iter=alternatives->head->next;iter;iter=iter->next)
-				if (player[n].probabilities[CARD_KIND(iter)] < player[n].probabilities[min / 13] ||
+				if (player[n].probabilities[CARD_SUIT(iter)] < player[n].probabilities[min / 13] ||
 				    player[n].probabilities[CARD_NUMBER(iter)] < player[n].probabilities[min % 13])
-					min = CARD_KIND(iter) * 13 + CARD_NUMBER(iter);
+					min = CARD_SUIT(iter) * 13 + CARD_NUMBER(iter);
 
 			for (j=0,iter=player[n].list->head;iter;iter=iter->next,j++)
-				if (CARD_KIND(iter) == min / 13 && CARD_NUMBER(iter) == min % 13)
+				if (CARD_SUIT(iter) == min / 13 && CARD_NUMBER(iter) == min % 13)
 					break;
 
-			if (min == CARD_KING(min / 13))
-				rotation *= (-1);
-
-			lastkind = min / 13;
+			lastsuit = min / 13;
 			playcard(n, min / 13, min % 13, &j);
 			moves++;
 
-			if (min == CARD_JOCKER(min / 13)) {
-				lastkind = selectbestkind(n);
-				update_table(EXPOSURE_KIND);
-			}
-
-			if (min == CARD_QUEEN(min / 13))
-				update_turn(FLAGS_QUEEN);
-
 			if (min == CARD_TWO(min / 13)) {
 				getatmost += 2;
-				printf("CPU%d: New static limit is %d cards\n", n, getatmost);
+				sprintf(message, "New static limit is %d cards", getatmost);
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
 			} else if (min == CARD_ACE(min / 13)) {
 				getatmost += 4;
-				printf("CPU%d: New static limit is %d cards\n", n, getatmost);
+				sprintf(message, "New static limit is %d cards", getatmost);
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
 			}
 
-			if (min == CARD_FOUR(min / 13) ||
-			    min == CARD_SEVEN(min / 13) ||
-			    min == CARD_JOCKER(min / 13) ||
-			    (min == CARD_QUEEN(min / 13) &&
-			     turn == n)) {
-				while (dllst_delitem(alternatives, 0)) {}
-				goto playagain;
-			} else {
-				cpuplayed = TRUE;
-			}
+			while (dllst_delitem(alternatives, 0)) {}
+			free(alternatives);
+			alternatives = NULL;
+			cpuplayed = TRUE;
 		}
 
 fnreturn:
 		if (cpuplayed && moves) {
 			if (!player[n].list->size) {
-				printf("CPU%d finished\n", n);
+				sprintf(message, "finished");
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
 				player[n].active = FALSE;
 				if (getactiveplayers() == 1)
-					finish_round();
+					finish_hand();
 			}
 			update_turn(FLAGS_NONE);
 			while (dllst_delitem(alternatives, 0)) {}
@@ -1054,17 +1593,25 @@ fnreturn:
 		} else if (!i) {
 getmorecards:
 			if (getatmost) {
-				printf("CPU%d: Getting up to %d cards from the deck\n", n, getatmost);
+				sprintf(message, "Getting %d cards from the deck", getatmost);
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
 				for (j=0;j<getatmost;j++) {
 					xcard = getcardfromdeck(n, ADD_CARD);
+					if (xcard == -1)
+						return;
+
 					if (!j &&
 					    (xcard == CARD_TWO(xcard / 13) ||
 					     xcard == CARD_ACE(xcard / 13))) {
-						printf("CPU%d: Skipping to get %d cards from the deck because "
-						       "I get an ace/two in the first attempt\n", n, getatmost);
+						sprintf(message, "Not taking %d cards because "
+						       "I got an ace/two in the first attempt",
+							getatmost);
+						printf("\t%s\n", message);
+						do_xmlNewChild(node, turn_node, "msg", message);
 
 						min = player[n].list->size - 1;
-						lastkind = xcard / 13;
+						lastsuit = xcard / 13;
 						playcard(n, xcard / 13, xcard % 13, &min);
 						moves++;
 
@@ -1077,23 +1624,32 @@ getmorecards:
 						goto fnreturn;
 					}
 				}
+
+				// The player will add one extra point for each six cards
+				// obtained from the deck
+				player[n].specialpts += getatmost / 6;
 				getatmost = 0;
 				moves++;
 			} else {
-				getcardfromdeck(n, ADD_CARD);
+				xcard = getcardfromdeck(n, ADD_CARD);
+				if (xcard == -1)
+					return;
 			}
 		}
 
 		i++;
 	}
 
-	printf("CPU%d: I have no cards matching kind or number as last played card\n", n);
+	sprintf(message, "I have no cards matching suit or number as last card played");
+	printf("\t%s\n", message);
+	do_xmlNewChild(node, turn_node, "msg", message);
 	update_turn(FLAGS_NONE);
 	while (dllst_delitem(alternatives, 0)) {}
 	free(alternatives);
 	if (getactiveplayers() == 1)
-		finish_round();
+		finish_hand();
 }
+#undef THIS_CARD
 
 int getactiveplayers(void)
 {
@@ -1107,72 +1663,74 @@ int getactiveplayers(void)
 	return ret;
 }
 
-void finish_round(void)
+void finish_hand(void)
 {
-	unsigned j, t, limit;
-	char str[32] = { '\0' };
-	struct {
-		int x0;
-		int y0;
-		int x1;
-		int y1;
-	} vtx[4] = { 
-			{  0,  0, 16,  0 },
-			{ 16,  0, 16, 16 },
-			{ 16, 16,  0, 16 },
-			{  0, 16,  0,  0 },
-		   };
+	unsigned j, t;
+	char str[32] = { '\0' }, buf[16] = { '\0' };
+	gui_table_t *table = NULL;
 
 
-	if (round_finished)
+	if (hand_finished)
 		return;
 
-	for (j=0;j<NPLAYERS;j++)
+	for (j=0;j<NPLAYERS;j++) {
 		if (player[j].active)
 			player[j].scores += player[j].list->size;
+		player[j].scores += player[j].specialpts;
+	}
+
+	for (j=0;j<52;j++)
+		del_selector(&resource[j], 0, 0, 0);
 
 	del_selector(&resource[RES_DECK],
 		     (800 - 2 * (CARD_WIDTH - 7)) / 2 + CARD_WIDTH / 2,
 		     CARD_WIDTH / 2,
 		     (600 - CARD_HEIGHT) / 2);
 
-	its.it_value.tv_sec = 0;
-	its.it_value.tv_nsec = 0;
-	timer_settime(deck_timer, TIMER_ABSTIME, &its, NULL);
+	do_timer_unset(deck_timer);
 	dialog = gui_newdialog(display, window, "Table of scores",
-			       (800 - 300) / 2,
-			       (600 - 240) / 2, 300, 240);
-	gui_addlabel(display, window, dialog, "Human CPU1   CPU2   CPU3", 10, 24);
-	for (t=0;t<NPLAYERS;t++) {
-		if (player[t].scores > 16)
-			limit = 16;
-		else
-			limit = player[t].scores;
+			       (800 - 350) / 2,
+			       (600 - 240) / 2, 350, 240);
+	table = gui_table_new(dialog, 5, 4);
+	gui_table_cell_set(table, 0, 0, "Player");
+	gui_table_cell_set(table, 0, 1, "This hand");
+	gui_table_cell_set(table, 0, 2, "Special");
+	gui_table_cell_set(table, 0, 3, "Total");
+	for (j=0;j<NPLAYERS;j++) {
+		gui_table_cell_set(table, j + 1, 0, player[j].name);
+		sprintf(buf, "%ld", player[j].list->size);
+		gui_table_cell_set(table, j + 1, 1, buf);
+		sprintf(buf, "%d", player[j].specialpts);
+		gui_table_cell_set(table, j + 1, 2, buf);
+		sprintf(buf, "%d", player[j].scores);
+		gui_table_cell_set(table, j + 1, 3, buf);
+	}
+	gui_table_show(table, 10, 10);
 
-		for (j=0;j<limit;j++)
-			XDrawLine(display, window, gc_black,
-				  dialog->x0 + 12 + t * 40 + vtx[j & 3].x0,
-				  dialog->y0 + 48 + (j / 4) * 24 + vtx[j & 3].y0,
-				  dialog->x0 + 12 + t * 40 + vtx[j & 3].x1,
-				  dialog->y0 + 48 + (j / 4) * 24 + vtx[j & 3].y1);
+	for (j=0;j<NPLAYERS;j++) {
+		do_xmlNewNode(node, "scores");
+		sprintf(buf, "%d", j);
+		do_xmlNewProp(node, "id", buf);
+		sprintf(buf, "%d", player[j].scores);
+		do_xmlNewProp(node, "total", buf);
+		do_xmlAddChild(hand_node, node);
 	}
 
 	for (t=0;t<NPLAYERS;t++)
-		if (player[t].scores > 16)
+		if (player[t].scores >= game_total)
 			break;
 
 	if (t == NPLAYERS) {
-		newround_button = gui_addbutton(display, window, dialog, "New round", 200, 200);
+		nhand++;
+		newhand_button = gui_addbutton(dialog, "New hand", 350 - 10 - 10 * FNT_WIDTH, 200);
 	} else {
-		if (!t)
-			sprintf(str, "Human ");
-		else
-			sprintf(str, "CPU%u ", t);
-		strcat(str, "looses the game");
-		gui_addlabel(display, window, dialog, str, 10, 180);
-		newgame_button = gui_addbutton(display, window, dialog, "New game", 200, 200);
+		nhand = 0;
+		ngame++;
+		sprintf(str, "%s lost", player[t].name);
+		gui_addlabel(dialog, str, 9);
+		newgame_button = gui_addbutton(dialog, "New game", 350 - 10 - 10 * FNT_WIDTH, 200);
 	}
-	round_finished = TRUE;
+	hand_finished = TRUE;
 }
 
 void do_exposure(XExposeEvent *ep)
@@ -1181,25 +1739,22 @@ void do_exposure(XExposeEvent *ep)
 
 
 	XFillRectangle(display, window, gc_table, 0, 0, 800, 600);
-	render_resource(&resource[RES_DECK], (800 - 2 * (CARD_WIDTH - 7)) / 2, (600 - CARD_HEIGHT) / 2);
-	add_selector(&resource[RES_DECK],
-		     (800 - 2 * (CARD_WIDTH - 7)) / 2 + CARD_WIDTH / 2,
-		     CARD_WIDTH / 2,
-		     (600 - CARD_HEIGHT) / 2);
+	unlock_deck();
 
-	fields.kind   = CARD_KIND(played_list->tail);
+	fields.suit   = CARD_SUIT(played_list->tail);
 	fields.number = CARD_NUMBER(played_list->tail);
-	render_resource(&resource[fields.kind * 13 + fields.number], DECK_PLAYED_X, DECK_PLAYED_Y);
+	render_resource(&resource[fields.suit * 13 + fields.number], STACK_OF_PLAYED_X, STACK_OF_PLAYED_Y);
 
 	update_cards(HUMAN, EXPOSURE_CARD, NULL);
-	update_cards(CPU1, EXPOSURE_CARD, NULL);
-	update_cards(CPU2, EXPOSURE_CARD, NULL);
-	update_cards(CPU3, EXPOSURE_CARD, NULL);
+	update_cards(BOT_1, EXPOSURE_CARD, NULL);
+	update_cards(BOT_2, EXPOSURE_CARD, NULL);
+	update_cards(BOT_3, EXPOSURE_CARD, NULL);
 
-	XDrawImageString(display, window, gc_white, HUMAN_X, HUMAN_Y, "Human", strlen("Human"));
-	XDrawImageString(display, window, gc_white, CPU1_X, CPU1_Y, "CPU1", strlen("CPU1"));
-	XDrawImageString(display, window, gc_white, CPU2_X, CPU2_Y, "CPU2", strlen("CPU2"));
-	XDrawImageString(display, window, gc_white, CPU3_X, CPU3_Y, "CPU3", strlen("CPU3"));
+	XDrawImageString(display, window, gc_white, 200 - strlen(player[0].name) * 6, HUMAN_Y,
+			 player[0].name, strlen(player[0].name));
+	XDrawImageString(display, window, gc_white, BOT_1_X, BOT_1_Y, player[1].name, strlen(player[1].name));
+	XDrawImageString(display, window, gc_white, BOT_2_X, BOT_2_Y, player[2].name, strlen(player[2].name));
+	XDrawImageString(display, window, gc_white, BOT_3_X, BOT_3_Y, player[3].name, strlen(player[3].name));
 
 	for (i=0;i<NPLAYERS;i++)
 		if (turn == i)
@@ -1207,7 +1762,8 @@ void do_exposure(XExposeEvent *ep)
 		else
 			render_resource(&resource[RES_PLAYING_DISABLED], playing_x[i], playing_y[i]);
 
-	update_table(EXPOSURE_KIND);
+	update_table(EXPOSURE_SUIT);
+
 	if (rotation == 1)
 		render_resource(&resource[RES_ARROW_CW], ARROW_X, ARROW_Y);
 	else
@@ -1222,11 +1778,13 @@ void do_buttondown(XButtonEvent *bp)
 	static int moves = 0;
 	static int prevmoves = 0;
 	static boolean_t vlock = FALSE;
+	char message[128] = { '\0' };
+	int dispatched = 0;
 
 
-	if (round_finished) {
-		if ((newround_button && (bp->x > newround_button->x0 && bp->x < newround_button->x1 &&
-		                         bp->y > newround_button->y0 && bp->y < newround_button->y1)) ||
+	if (hand_finished) {
+		if ((newhand_button && (bp->x > newhand_button->x0 && bp->x < newhand_button->x1 &&
+		                         bp->y > newhand_button->y0 && bp->y < newhand_button->y1)) ||
 		    (newgame_button && (bp->x > newgame_button->x0 && bp->x < newgame_button->x1 &&
 		                        bp->y > newgame_button->y0 && bp->y < newgame_button->y1))) {
 			if (vlock)
@@ -1249,17 +1807,24 @@ void do_buttondown(XButtonEvent *bp)
 				del_selector(&resource[i], 0, 0, 0);
 
 			if (newgame_button && (bp->x > newgame_button->x0 && bp->x < newgame_button->x1 &&
-			                       bp->y > newgame_button->y0 && bp->y < newgame_button->y1))
-				for (i=0;i<NPLAYERS;i++)
+			                       bp->y > newgame_button->y0 && bp->y < newgame_button->y1)) {
+				for (i=0;i<NPLAYERS;i++) {
 					player[i].scores = 0;
+					player[i].specialpts = 0;
+				}
+				do_xmlNewNode(game_node, "game");
+				sprintf(message, "%u", ngame);
+				do_xmlNewProp(game_node, "id", message);
+				do_xmlAddChild(session_node, game_node);
+			}
 
-			round_finished = FALSE;
-			free(newround_button);
-			newround_button = NULL;
+			hand_finished = FALSE;
+			free(newhand_button);
+			newhand_button = NULL;
 			free(newgame_button);
 			newgame_button = NULL;
-			gui_destroydialog(display, window, dialog);
-			init_round();
+			gui_destroydialog(dialog);
+			init_hand();
 			do_exposure(&event.xexpose);
 			vlock = FALSE;
 		}
@@ -1269,112 +1834,152 @@ void do_buttondown(XButtonEvent *bp)
 		return;
 
 	switch (bp->button) {
+	// left button
 	case Button1:
-		if (bp->x > resource[RES_DECK].region.x0 && bp->x < resource[RES_DECK].region.x1 &&
-		    bp->y > resource[RES_DECK].region.y0 && bp->y < resource[RES_DECK].region.y1) {
+		if (bp->x > resource[RES_DECK].region.x0 &&
+		    bp->x < resource[RES_DECK].region.x1 &&
+		    bp->y > resource[RES_DECK].region.y0 &&
+		    bp->y < resource[RES_DECK].region.y1) {
 			if (getatmost)
 				limit = getatmost;
 			else
 				limit = 1;
 
-			if (getatmost)
-				printf("HUMAN: Getting up to %lu cards from the deck\n", limit);
+			if (getatmost) {
+				sprintf(message, "Getting %lu cards from the deck", limit);
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
+			}
+
 			for (;moves<limit;moves++) {
 				xcard = getcardfromdeck(HUMAN, ADD_CARD);
+				if (xcard == -1)
+					return;
+
 				if (!moves && limit > 1 &&
 				    (xcard == CARD_TWO(xcard / 13) ||
 				     xcard == CARD_ACE(xcard / 13))) {
-					printf("HUMAN: Skipping to get %lu cards from the deck because "
-					       "I get an ace/two in the first attempt\n", limit);
+					sprintf(message, "Not taking %lu cards because "
+					       "I got an ace/two in the first attempt",
+						limit);
+					printf("\t%s\n", message);
+					do_xmlNewChild(node, turn_node, "msg", message);
 					update_cards(HUMAN, GET_CARD, NULL);
 					moves = prevmoves = 1;
 					return;
 				}
 			}
 
+			// @limit can be at most 24 (i.e., all of the aces and twos
+			// have been played)
+			if (limit > 1)
+				player[HUMAN].specialpts += limit / 6;
+
 			getatmost = 0;
+			lock_deck();
 			break;
 		}
 
 		for (i=0;i<4;i++) {
-			if (bp->x > resource[RES_KIND_BASE + i].region.x0 &&
-			    bp->x < resource[RES_KIND_BASE + i].region.x1 &&
-			    bp->y > resource[RES_KIND_BASE + i].region.y0 &&
-			    bp->y < resource[RES_KIND_BASE + i].region.y1) {
+			if (bp->x > resource[RES_SUIT_BASE + i].region.x0 &&
+			    bp->x < resource[RES_SUIT_BASE + i].region.x1 &&
+			    bp->y > resource[RES_SUIT_BASE + i].region.y0 &&
+			    bp->y < resource[RES_SUIT_BASE + i].region.y1) {
 				update_table(SELECT_NONE);
-				lastkind = i;
-				update_table(EXPOSURE_KIND);
+				lastsuit = i;
+				update_table(EXPOSURE_SUIT);
 				update_cards(HUMAN, EXPOSURE_CARD, NULL);
 				return;
 			}
 		}
 
 		for (i=0;i<52;i++) {
-			if (bp->x > resource[i].region.x0 && bp->x < resource[i].region.x1 &&
-			    bp->y > resource[i].region.y0 && bp->y < resource[i].region.y1) {
+			if (bp->x > resource[i].region.x0 &&
+			    bp->x < resource[i].region.x1 &&
+			    bp->y > resource[i].region.y0 &&
+			    bp->y < resource[i].region.y1) {
 				for (iter=player[HUMAN].list->head,j=0;iter;iter=iter->next,j++) {
-					if (i == CARD_KIND(iter) * 13 + CARD_NUMBER(iter)) {
+					if (i == CARD_SUIT(iter) * 13 + CARD_NUMBER(iter)) {
 						moves = prevmoves = 0;
 
-						if (i != CARD_FOUR(CARD_KIND(iter)) &&
-						    i != CARD_SEVEN(CARD_KIND(iter)) &&
-						    i != CARD_JOCKER(CARD_KIND(iter))) {
+						if (i != CARD_FOUR(CARD_SUIT(iter)) &&
+						    i != CARD_SEVEN(CARD_SUIT(iter)) &&
+						    i != CARD_JACK(CARD_SUIT(iter)) &&
+						    !(i == CARD_QUEEN(CARD_SUIT(iter)) &&
+						     getactiveplayers() == 2)) {
 							humanplayed = TRUE;
 						} else {
-							its.it_interval.tv_sec = its.it_value.tv_sec = 0;
-							its.it_interval.tv_nsec = its.it_value.tv_nsec = 125000000;
-							timer_settime(playing_timer, TIMER_ABSTIME, &its, NULL);
+							dispatched++;
+							do_timer_set(playing_timer, 0, 125000000);
 						}
 
-						if (i == CARD_TWO(CARD_KIND(iter))) {
+						if (i == CARD_TWO(CARD_SUIT(iter)))
 							getatmost += 2;
-							printf("HUMAN: New static limit is %d cards\n", getatmost);
-						} else if (i == CARD_ACE(CARD_KIND(iter))) {
+						else if (i == CARD_ACE(CARD_SUIT(iter)))
 							getatmost += 4;
-							printf("HUMAN: New static limit is %d cards\n", getatmost);
-						} else {
+						else
 							getatmost = 0;
-						}
 
-						if (i == CARD_JOCKER(CARD_KIND(iter)))
-							update_table(SELECT_KIND);
+						if (i == CARD_JACK(CARD_SUIT(iter)))
+							update_table(SELECT_SUIT);
 
-						if (i == CARD_KING(CARD_KIND(iter)))
+						if (i == CARD_KING(CARD_SUIT(iter)))
 							rotation *= (-1);
 
-						lastkind = CARD_KIND(iter);
-						playcard(HUMAN, CARD_KIND(iter), CARD_NUMBER(iter), &j);
+						lastsuit = CARD_SUIT(iter);
+						playcard(HUMAN, CARD_SUIT(iter), CARD_NUMBER(iter), &j);
+						if (getatmost) {
+							sprintf(message, "New static limit is %d cards", getatmost);
+							printf("\t%s\n", message);
+							do_xmlNewChild(node, turn_node, "msg", message);
+						}
+						unlock_deck();
 						break;
 					}
 				}
 
 				if (humanplayed) {
 					update_table(SELECT_NONE);
-					update_table(EXPOSURE_KIND);
-					its.it_value.tv_sec = 0;
-					its.it_value.tv_nsec = 0;
-					timer_settime(playing_timer, TIMER_ABSTIME, &its, NULL);
-					timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
-					if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(KIND_CLOVERS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(KIND_DIAMONDS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(KIND_HEARTS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(KIND_PICAS))
+					update_table(EXPOSURE_SUIT);
+					do_timer_unset(playing_timer);
+					do_timer_unset(table_timer);
+
+					// @dispatched can be at most 17 (i.e., all of
+					// the 4s, 7s, jacks, queens and a arbitrary
+					// card have been played)
+					player[HUMAN].specialpts -= dispatched / 4;
+
+					if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_CLUBS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_DIAMONDS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_HEARTS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_SPADES))
 						update_turn(FLAGS_QUEEN);
 					else
 						update_turn(FLAGS_NONE);
 
-					while (turn != HUMAN)
+					while (turn != HUMAN && getactiveplayers() > 1)
 						bot_play(turn);
+
+					if (getactiveplayers() == 1) {
+						finish_hand();
+						return;
+					}
+
+					do_xmlNewNode(turn_node, "turn");
+					do_xmlNewProp(turn_node, "id", "0");
+					do_xmlAddChild(hand_node, turn_node);
 
 					if (!getatmost) {
 						update_cards(HUMAN, EXPOSURE_CARD, NULL);
 						if (!player[HUMAN].list->size) {
-							printf("HUMAN finished\n");
+							sprintf(message, "finished");
+							printf("\t%s\n", message);
+							do_xmlNewChild(node, turn_node, "msg", message);
 							player[HUMAN].active = FALSE;
 							update_turn(FLAGS_NONE);
 							while (getactiveplayers() > 1)
 								bot_play(turn);
-							finish_round();
+							finish_hand();
 						}
 					} else {
 						update_cards(HUMAN, GET_CARD, NULL);
@@ -1385,26 +1990,39 @@ void do_buttondown(XButtonEvent *bp)
 			}
 		}
 		break;
+	// right button
 	case Button3:
-		if (bp->x > resource[RES_DECK].region.x0 && bp->x < resource[RES_DECK].region.x1 &&
-		    bp->y > resource[RES_DECK].region.y0 && bp->y < resource[RES_DECK].region.y1) {
+		if (bp->x > resource[RES_DECK_LOCKED].region.x0 &&
+		    bp->x < resource[RES_DECK_LOCKED].region.x1 &&
+		    bp->y > resource[RES_DECK_LOCKED].region.y0 &&
+		    bp->y < resource[RES_DECK_LOCKED].region.y1) {
 			if (getatmost)
 				limit = getatmost;
 			else
 				limit = 1;
 
 			if (!humanplayed && moves >= limit) {
+				unlock_deck();
 				update_table(SELECT_NONE);
-				update_table(EXPOSURE_KIND);
+				update_table(EXPOSURE_SUIT);
 				humanplayed = TRUE;
 				moves = 0;
-				its.it_value.tv_sec = 0;
-				its.it_value.tv_nsec = 0;
-				timer_settime(playing_timer, TIMER_ABSTIME, &its, NULL);
-				timer_settime(table_timer, TIMER_ABSTIME, &its, NULL);
+				do_timer_unset(playing_timer);
+				do_timer_unset(table_timer);
+
 				update_turn(FLAGS_NONE);
-				while (turn != HUMAN)
+				while (turn != HUMAN && getactiveplayers() > 1)
 					bot_play(turn);
+
+				if (getactiveplayers() == 1) {
+					finish_hand();
+					return;
+				}
+
+				do_xmlNewNode(turn_node, "turn");
+				do_xmlNewProp(turn_node, "id", "0");
+				do_xmlAddChild(hand_node, turn_node);
+
 				if (!getatmost)
 					update_cards(HUMAN, EXPOSURE_CARD, NULL);
 				else
@@ -1419,25 +2037,21 @@ void do_buttondown(XButtonEvent *bp)
 void do_timer(union sigval tp)
 {
 	int j;
-	static int i = 0, kind = 0;
+	static int i = 0, suit = 0;
 	static unsigned long playing_status = 0;
 
 
 	if (tp.sival_int == 1) {
 
 		// deck_timer
-		XFillArc(display, window, gc_anim[i & 7],
-			 DECK_PLAYED_X - CARD_WIDTH / 2 - 35, DECK_PLAYED_Y + CARD_HEIGHT + 15, 50, 50,
-		 	 i * 45 * 64, 45 * 64);
-		if (++i > 8) {
+		XLockDisplay(display);
+		XFillRectangle(display, window, gc_anim[i & 7], DECK_X - 7, DECK_Y + i * 12, 3, 11);
+		if (++i > 7) {
 			i = 0;
-			its.it_value.tv_sec = 0;
-			its.it_value.tv_nsec = 0;
-			timer_settime(deck_timer, TIMER_ABSTIME, &its, NULL);
-			XFillArc(display, window, gc_table,
-				 DECK_PLAYED_X - CARD_WIDTH / 2 - 35, DECK_PLAYED_Y + CARD_HEIGHT + 15,
-				 50, 50, 0, 360 * 64);
+			do_timer_unset(deck_timer);
+			XFillRectangle(display, window, gc_table, DECK_X - 7, DECK_Y, 3, 8 * 12);
 		}
+		XUnlockDisplay(display);
 	} else if (tp.sival_int == 2) {
 
 		// playing_timer
@@ -1454,12 +2068,64 @@ void do_timer(union sigval tp)
 		// table_timer
 		XLockDisplay(display);
 		for (j=0;j<4;j++)
-			if ((kind & 3) == j)
-				render_resource(&resource[RES_KIND_BASE_INV + j], KIND_X, KIND_Y(j));
+			if ((suit & 3) == j)
+				render_resource(&resource[RES_SUIT_BASE_INV + j], SUIT_X, SUIT_Y(j));
 			else
-				render_resource(&resource[RES_KIND_BASE + j], KIND_X, KIND_Y(j));
-		kind++;
+				render_resource(&resource[RES_SUIT_BASE + j], SUIT_X, SUIT_Y(j));
+		suit++;
 		XUnlockDisplay(display);
 	}
+}
+
+/*
+ *
+ * Function registered as the last procedure to run on program exit.
+ * Please note that it only occurs when the window is closed, in which
+ * case the connection to the X server is first broken and therefore all of
+ * the subsequent calls to Xlib functions are no-ops (e.g., XFreeGC(),
+ * XDestroyWindow(), etc). This should be sanitized in future releases by
+ * adding code to be run when the window manager sends messages to this
+ * window.
+ *
+ */
+void do_exit(void)
+{
+	int i;
+
+
+	printf("Bye!\n");
+
+	if (savelog) {
+		if (logfilename) {
+			do_xmlSaveFormatFileEnc(logfilename, xml_logfile);
+		} else {
+			do_xmlSaveFormatFileEnc(".nullify-session.xml", xml_logfile);
+		}
+	}
+	do_xmlFreeDoc(xml_logfile);
+	do_xmlCleanupParser();
+
+	while (dllst_delitem(deck_list, 0)) {}
+	free(deck_list);
+	while (dllst_delitem(played_list, 0)) {}
+	free(played_list);
+	for (i=0;i<NPLAYERS;i++) {
+		while (dllst_delitem(player[i].list, 0)) {}
+		free(player[i].list);
+	}
+	for (i=0;i<NRESOURCES;i++) {
+		free(resource[i].bytes);
+		free(resource[i].color);
+	}
+	XFreePixmap(display, cardpixmap);
+	XFreeGC(display, gc_white);
+	XFreeGC(display, gc_black);
+	XFreeGC(display, gc_table);
+	XFreeGC(display, gc_selector);
+	for (i=0;i<8;i++)
+		XFreeGC(display, gc_anim[i]);
+	XDestroyWindow(display, window);
+	XFlush(display);
+	XCloseDisplay(display);
 }
 

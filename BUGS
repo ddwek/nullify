@@ -1,0 +1,32 @@
+This is the list of fixed bugs up to the current version. If you find
+a bug, please report it to the authors of the project (see AUTHORS).
+Make sure to include in your report detailed info about your system,
+"./configure" options supplied at compile-time and everything you
+consider useful to reproduce the bug (if the game was compiled with
+the --enable-xml-logs=yes option and run with the --savelog runtime
+option, please attach the XML file as well).
+
+* Earlier releases of nullify had a compile-time error on some systems because
+  of mismatching versions of libpng. The initial release and subsequent commits
+  to the master branch were written and locally tested using libpng v1.2.
+  However, due to changes in the API starting with v1.5, members of some
+  structs are no longer exposed and, instead, they are now accessed through
+  public methods which interact directly with the private variables (similar to
+  the concept of encapsulation in OOP). These methods include determination of
+  width and height of the image. This was the cause of compilation errors on
+  most recent distros. See png.h and pngconf.h for further details.
+
+* Nullify uses its own implementation of doubly-linked lists through a set of
+  functions defined in src/dllst.c. Those functions are provided to handle this
+  kind of data structures in non-templatized and strongly typed programming
+  languages such as C, and they are called from many locations of the project.
+  However, there were several bugs in src/main.c when dllst_newitem() was called
+  to add items of two or more long integers in 64-bit environments. This produced
+  buffer overflows, SIGABRT being raised and program execution ending abnormally.
+
+* One of the pending bugs in previous versions has been fixed up: the special
+  case of "greedy player". That is, a player trying to get from the deck more
+  cards than the available amount. Specifically, the program looped indefinitely
+  in getcardfromdeck() function. Starting with this version, every time occurs
+  that situation the player with more cards looses and they are put back onto
+  the deck.

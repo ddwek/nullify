@@ -1,6 +1,6 @@
 /*
- *
- * Copyright 2018 Daniel Dwek
+ * dllst.c: routines to handle doubly-linked lists in C
+ * Copyright 2018-2019 Daniel Dwek
  *
  * This file is part of nullify.
  *
@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 typedef enum { FALSE=0, TRUE } boolean_t;
 typedef enum { 	F_SIGNED_CHAR_T=0, F_UNSIGNED_CHAR_T, F_SIGNED_SHORT_T, \
@@ -36,7 +37,7 @@ typedef enum { 	F_SIGNED_CHAR_T=0, F_UNSIGNED_CHAR_T, F_SIGNED_SHORT_T, \
 typedef union {
 	long long a;
 	double b;
-} p2align_t;
+} largest_t;
 
 typedef struct dllst_item_struct {
 #if DEBUG_DLLST_SORTROUTINE
@@ -70,8 +71,6 @@ dllst_item_struct_t *dllst_delitem(dllst_t *l, unsigned long n);
 boolean_t dllst_isinlst(dllst_t *l, void *fields);
 void dllst_swapitems(dllst_t *l, unsigned long a, unsigned long b);
 void dllst_sortby(dllst_t *l, unsigned field, boolean_t asc);
-
-
 
 static void dbginfo_print(char *s)
 {
@@ -121,7 +120,7 @@ dllst_t *dllst_initlst(dllst_t *l, char *fields_info)
 		return NULL;
 
 	if (!l) {
-		l = (dllst_t *)malloc(sizeof(dllst_t));
+		l = (dllst_t *)calloc(1, sizeof(dllst_t));
 		if (l) {
 			for (i=0;i<strlen(fields_info);i++)
 				if (fields_info[i] == ':')
@@ -146,7 +145,7 @@ next_field:
 #define ADD_CASE_F_INFO(letter, type, str_sprintf) \
 case letter: \
 	*&(l->f_info[t]->f_type) = type; \
-	*&(l->f_info[t]->f_size) = sizeof(p2align_t); \
+	*&(l->f_info[t]->f_size) = sizeof(largest_t); \
 	l->f_info[t]->f_sprintf  = (char *)calloc(1, strlen(str_sprintf) + 1); \
 	if (!l->f_info[t]->f_sprintf) \
 		goto oom_return; \
@@ -170,7 +169,7 @@ case letter: \
 				ADD_CASE_F_INFO('t', F_STRING_T, "%s")
 				case '*':
 					(*&(l->f_info[t]->f_type))++;
-					*&(l->f_info[t]->f_size) = sizeof(p2align_t);
+					*&(l->f_info[t]->f_size) = sizeof(largest_t);
 					l->f_info[t]->f_sprintf = (char *)calloc(1, strlen("%p") + 1);
 					if (!l->f_info[t]->f_sprintf)
 						goto oom_return;
@@ -240,7 +239,7 @@ dllst_item_struct_t *dllst_newitem(dllst_t *l, void *fields)
 
 #define ADD_CASE_F_VALUE(type) \
 case type: \
-	*((p2align_t *)item->fields + i) = *((p2align_t *)fields + i); \
+	*((largest_t *)item->fields + i) = *((largest_t *)fields + i); \
 	break;
 			item->fields = (void *)calloc(1, j);
 			if (item->fields) {
@@ -306,6 +305,13 @@ case type: \
 #undef ADD_CASE_F_VALUE
 }
 
+/**
+ *
+ * dllst_getitem() -	Get a specified item of a list
+ * @l:			Pointer to the list
+ * @n:			the nth item to get an iterator
+ *
+ */
 dllst_item_struct_t *dllst_getitem(dllst_t *l, unsigned long n)
 {
         long i;
@@ -342,6 +348,13 @@ dllst_item_struct_t *dllst_getitem(dllst_t *l, unsigned long n)
         return NULL;
 }
 
+/**
+ *
+ * dllst_delitem() -	Remove the nth item of a list
+ * @l:			Pointer to the list
+ * @n:			the nth item to be deleted
+ *
+ */
 dllst_item_struct_t *dllst_delitem(dllst_t *l, unsigned long n)
 {
 	char ch[64] = { '\0' };
@@ -406,9 +419,11 @@ dllst_item_struct_t *dllst_delitem(dllst_t *l, unsigned long n)
  * @fields:		A structure containing the fields that the caller function
  *			query for existence in the list
  *
- * Because of we don't know at compile-time if the program that is linked against
- * this library stores in @fields pointers to pointers, only basic data types are
- * meaningful when comparing such an argument with 'item->fields'.
+ * Only basic data types are meaningful when comparing @fields with 'item->fields'.
+ * Also, in order to avoid compiler warnings when a floating point comparison
+ * is performed, the epsilon variables hold the lower and upper boundaries
+ * according to their types which are used to find whether a specified number
+ * is within the range " x - epsilon < x < x + epsilon ".
  *
  */
 boolean_t dllst_isinlst(dllst_t *l, void *fields)
@@ -421,17 +436,17 @@ boolean_t dllst_isinlst(dllst_t *l, void *fields)
 
 #define ADD_CASE_FIELDS_COMPARISON(f_type, f_type_p) \
 case f_type: \
-	if (*((f_type_p *)fields + i * sizeof(p2align_t) / sizeof(f_type_p)) != \
-	    *((f_type_p *)item->fields + i * sizeof(p2align_t) / sizeof(f_type_p))) \
+	if (*((f_type_p *)fields + i * sizeof(largest_t) / sizeof(f_type_p)) != \
+	    *((f_type_p *)item->fields + i * sizeof(largest_t) / sizeof(f_type_p))) \
 		goto next_item; \
 	break;
 
 #define ADD_CASE_FP_COMPARISON(f_type, f_type_p, epsilon) \
 case f_type: \
-	if (!(*((f_type_p *)fields + i * sizeof(p2align_t) / sizeof(f_type_p)) > \
-	    *((f_type_p *)item->fields + i * sizeof(p2align_t) / sizeof(f_type_p)) - epsilon && \
-	    *((f_type_p *)fields + i * sizeof(p2align_t) / sizeof(f_type_p)) < \
-	    *((f_type_p *)item->fields + i * sizeof(p2align_t) / sizeof(f_type_p)) + epsilon)) \
+	if (!(*((f_type_p *)fields + i * sizeof(largest_t) / sizeof(f_type_p)) > \
+	    *((f_type_p *)item->fields + i * sizeof(largest_t) / sizeof(f_type_p)) - epsilon && \
+	    *((f_type_p *)fields + i * sizeof(largest_t) / sizeof(f_type_p)) < \
+	    *((f_type_p *)item->fields + i * sizeof(largest_t) / sizeof(f_type_p)) + epsilon)) \
 		goto next_item; \
 	break;
 
@@ -452,8 +467,8 @@ case f_type: \
 			ADD_CASE_FP_COMPARISON(F_FLOAT_T, float, eps0)
 			ADD_CASE_FP_COMPARISON(F_DOUBLE_T, double, eps1)
 			case F_STRING_T:
-				string0 = *((char **)item->fields + i * sizeof(p2align_t) / sizeof(char *));
-				string1 = *((char **)fields + i * sizeof(p2align_t) / sizeof(char *));
+				string0 = *((char **)item->fields + i * sizeof(largest_t) / sizeof(char *));
+				string1 = *((char **)fields + i * sizeof(largest_t) / sizeof(char *));
 				if (strcmp(string0, string1))
 					goto next_item;
 
@@ -473,6 +488,14 @@ next_item:
 #undef ADD_CASE_FIELDS_COMPARISON
 }
 
+/**
+ *
+ * dllst_swapitems() -	Swap positions of item A and B on the list	
+ * @l:			Pointer to the list
+ * @a:			nth source item list
+ * @b:			nth destination item list
+ *
+ */
 void dllst_swapitems(dllst_t *l, unsigned long a, unsigned long b)
 {
 	unsigned long i;
@@ -521,7 +544,16 @@ void dllst_swapitems(dllst_t *l, unsigned long a, unsigned long b)
 	}
 }
 
-/*
+/**
+ *
+ * dllst_sortby() -	Order a list by specified key and direction	
+ * @l:			Pointer to the list
+ * @field:		the field used as a key 
+ * @asc:		set to TRUE if ascending order is desired,
+ *			FALSE otherwise
+ *
+ * Sort a list by an alternative algorithm to the well-known "bubble method",
+ * which could be implemented using two nested loops.
  *
  * TODO: Add support for list ordering based on multiple comparison criteria
  * (e.g., sort by x (asc), then by y (des), and so on)
@@ -631,12 +663,12 @@ static unsigned long dllst_findmin(dllst_t *l, void *a, unsigned field, unsigned
 	static unsigned char		 var_uchar = ~0;
 	static short			 var_sshort = 0x7fff;
 	static unsigned short		 var_ushort = ~0;
-	static int			 var_sint = 0x7fffffff;
-	static unsigned int		 var_uint = ~0;
-	static long			 var_slong = 0x7fffffff;
-	static unsigned long		 var_ulong = ~0;
-	static long long		 var_slonglong = 0x7fffffffffffffff;
-	static unsigned long long	 var_ulonglong = ~0;
+	static int			 var_sint = INT_MAX;
+	static unsigned int		 var_uint = UINT_MAX;
+	static long			 var_slong = LONG_MAX;
+	static unsigned long		 var_ulong = ULONG_MAX;
+	static long long		 var_slonglong = LLONG_MAX;
+	static unsigned long long	 var_ulonglong = ULLONG_MAX;
 	static float			 var_float = +3.4028234663852885981170418348451692544000e+38;
 	static double			 var_double = +1.7976931348623157081452742373170435679807e+308;
 	static char *var_string = NULL;
@@ -646,12 +678,12 @@ static unsigned long dllst_findmin(dllst_t *l, void *a, unsigned field, unsigned
 		var_uchar = ~0;
 		var_sshort = 0x7fff;
 		var_ushort = ~0;
-		var_sint = 0x7fffffff;
-		var_uint = ~0;
-		var_slong = 0x7fffffff;
-		var_ulong = ~0;
-		var_slonglong = 0x7fffffffffffffff;
-		var_ulonglong = ~0;
+		var_sint = INT_MAX;
+		var_uint = UINT_MAX;
+		var_slong = LONG_MAX;
+		var_ulong = ULONG_MAX;
+		var_slonglong = LLONG_MAX;
+		var_ulonglong = ULLONG_MAX;
 		var_float = +3.4028234663852885981170418348451692544000e+38;
 		var_double = +1.7976931348623157081452742373170435679807e+308;
 		free(var_string);
@@ -660,8 +692,8 @@ static unsigned long dllst_findmin(dllst_t *l, void *a, unsigned field, unsigned
 
 #define ADD_CASE_STATIC_COMPARISON(f_type, f_type_p, static_var, op) \
 case f_type: \
-	if (*((f_type_p *)a + field * sizeof(p2align_t) / sizeof(f_type_p)) op static_var) { \
-		static_var = *((f_type_p *)a + field * sizeof(p2align_t) / sizeof(f_type_p)); \
+	if (*((f_type_p *)a + field * sizeof(largest_t) / sizeof(f_type_p)) op static_var) { \
+		static_var = *((f_type_p *)a + field * sizeof(largest_t) / sizeof(f_type_p)); \
 		min = index; \
 	} \
 	break;
@@ -683,11 +715,11 @@ case f_type: \
 		if (!var_string) {
 new_string:
 			var_string = (char *)calloc(1, \
-					strlen(*((char **)a + field * sizeof(p2align_t) / sizeof(char *))) + 1);
-			strcpy(var_string, *((char **)a + field * sizeof(p2align_t) / sizeof(char *)));
+					strlen(*((char **)a + field * sizeof(largest_t) / sizeof(char *))) + 1);
+			strcpy(var_string, *((char **)a + field * sizeof(largest_t) / sizeof(char *)));
 			min = index;
 		} else {
-			if (strcmp(*((char **)a + field * sizeof(p2align_t) / sizeof(char *)), var_string) <= 0) {
+			if (strcmp(*((char **)a + field * sizeof(largest_t) / sizeof(char *)), var_string) <= 0) {
 				free(var_string);
 				goto new_string;
 			}
@@ -708,11 +740,11 @@ static unsigned long dllst_findmax(dllst_t *l, void *a, unsigned field, unsigned
 	static unsigned char		 var_uchar = 0;
 	static short			 var_sshort = 0x8000;
 	static unsigned short		 var_ushort = 0;
-	static int			 var_sint = 0x80000000;
+	static int			 var_sint = INT_MIN;
 	static unsigned int		 var_uint = 0;
-	static long			 var_slong = 0x80000000;
+	static long			 var_slong = LONG_MIN;
 	static unsigned long		 var_ulong = 0UL;
-	static long long		 var_slonglong = 0x8000000000000000;
+	static long long		 var_slonglong = LLONG_MIN;
 	static unsigned long long	 var_ulonglong = 0ULL;
 	static float			 var_float = -3.4028234663852885981170418348451692544000e+38;
 	static double			 var_double = -1.7976931348623157081452742373170435679807e+308;
@@ -723,11 +755,11 @@ static unsigned long dllst_findmax(dllst_t *l, void *a, unsigned field, unsigned
 		var_uchar = 0;
 		var_sshort = 0x8000;
 		var_ushort = 0;
-		var_sint = 0x80000000;
+		var_sint = INT_MIN;
 		var_uint = 0;
-		var_slong = 0x80000000;
+		var_slong = LONG_MIN;
 		var_ulong = 0UL;
-		var_slonglong = 0x8000000000000000;
+		var_slonglong = LLONG_MIN;
 		var_ulonglong = 0ULL;
 		var_float = -3.4028234663852885981170418348451692544000e+38;
 		var_double = -1.7976931348623157081452742373170435679807e+308;
@@ -737,8 +769,8 @@ static unsigned long dllst_findmax(dllst_t *l, void *a, unsigned field, unsigned
 
 #define ADD_CASE_STATIC_COMPARISON(f_type, f_type_p, static_var, op) \
 case f_type: \
-	if (*((f_type_p *)a + field * sizeof(p2align_t) / sizeof(f_type_p)) op static_var) { \
-		static_var = *((f_type_p *)a + field * sizeof(p2align_t) / sizeof(f_type_p)); \
+	if (*((f_type_p *)a + field * sizeof(largest_t) / sizeof(f_type_p)) op static_var) { \
+		static_var = *((f_type_p *)a + field * sizeof(largest_t) / sizeof(f_type_p)); \
 		max = index; \
 	} \
 	break;
@@ -760,11 +792,11 @@ case f_type: \
 		if (!var_string) {
 new_string:
 			var_string = (char *)calloc(1, \
-					strlen(*((char **)a + field * sizeof(p2align_t) / sizeof(char *))) + 1);
-			strcpy(var_string, *((char **)a + field * sizeof(p2align_t) / sizeof(char *)));
+					strlen(*((char **)a + field * sizeof(largest_t) / sizeof(char *))) + 1);
+			strcpy(var_string, *((char **)a + field * sizeof(largest_t) / sizeof(char *)));
 			max = index;
 		} else {
-			if (strcmp(*((char **)a + field * sizeof(p2align_t) / sizeof(char *)), var_string) >= 0) {
+			if (strcmp(*((char **)a + field * sizeof(largest_t) / sizeof(char *)), var_string) >= 0) {
 				free(var_string);
 				goto new_string;
 			}

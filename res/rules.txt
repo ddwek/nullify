@@ -1,0 +1,25 @@
+Nullify is a cards game which goal is to get rid of all the cards you have in hand.
+
+Main rule
+=========
+When in turn, the player must either play a card of the same suit / number as last
+card played or pick up one card from the deck. If is not possible play the new card
+because it mismatches suit or number, you must to do right-click over the deck and
+the turn is updated to the next player.
+
+Quick reference of special cards (see README for further explanations)
+======================================================================
+Ace and two:
+    Each time a player dispatches an 'A' or '2', the next player in turn will be
+    forced to get up to 4 or 2 cards from the deck, respectively.
+Four and seven:
+    Whether a '4' or '7' is played, another card of the same suit/number must be
+    played.
+Jack:
+    Likewise, but also the player can select the suit of cards to play.
+Queen:
+    Whether a 'Q' is played, the most immediate player in turn is skipped.
+King:
+    Whether a 'K' is played, rotation mode is toggled clockwise/counter-clockwise.
+
+Have fun ;-)

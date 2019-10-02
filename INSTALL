@@ -1,12 +1,17 @@
 Installation
 ------------
 
-For installing using the GNU Build System installation method of source packages,
-just open a terminal and type the following commands:
+To install using the GNU Build System method, just open a terminal and
+type the following commands:
 
 	username@host: dir $ tar -jxf nullify.tar.bz2
 	username@host: dir $ cd nullify
-	username@host: nullify $ ./configure --prefix=/usr/local
+	username@host: nullify $ ./configure --prefix=/usr/local [--enable-xml-logs=yes]
 	username@host: nullify $ make
-	username@host: nullify $ sudo make install
+	[ become superuser if needed ]
+	username@host: nullify $ make install-strip
+
+Option "--enable-xml-logs=yes" adds built-in support of session dumping to
+XML files, useful if you are debugging the game or reporting bugs (you should include
+your session file in the latter case).
 

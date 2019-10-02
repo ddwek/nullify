@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2018 Daniel Dwek
+ * Copyright 2018-2019 Daniel Dwek
  *
  * This file is part of nullify.
  *
@@ -71,4 +71,3 @@ extern boolean_t dllst_isinlst (dllst_t *l, void *fields);
 extern void dllst_swapitems(dllst_t *l, unsigned long a, unsigned long b);
 extern void dllst_sortby (dllst_t *l, unsigned int field, boolean_t asc);
 #endif
-

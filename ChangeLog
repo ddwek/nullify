@@ -1,0 +1,69 @@
+2019-10-01  Daniel Dwek  <todovirtual15@gmail.com>
+
+	0.2.0 Release
+	* Some translation fixes in #defines, variables, function names
+	  and filenames living under subdirectory res/.
+	
+	* Added animate_card() function to animate cards moves from and
+	  to the deck.
+	
+	* Added lock_deck() and unlock_deck() functions to disable/enable
+	  human's capability to take cards from the deck.
+	
+	* Removed the circular animation which was rendered when had no
+	  more cards to get from the deck. Instead, do_timer() now
+	  displays a subtle vertical bar of colors to the left of the deck.
+	
+	* Last card of the human's list (the rightmost one) can now be
+	  selected when the mouse is within the range of the entire width
+	  of a card.
+	
+	* Added registration of exit function to be executed when the
+	  window is closed.
+	
+	* Added functions to render tables inside dialogues in src/gui.c.
+	  They are called from finish_hand() to display players' scores
+	  with a new look.
+	
+	* Added optional support of session logging with XML format in
+	  order to help the developers (currently only me) to debug the
+	  game. XML is included if the user run the "./configure" script
+	  with the "--enable-xml-logs=yes" option on the command line
+	  (it requires libxml2 headers and libraries to be present in the
+	  system).
+	
+	* Timers can now be set with functions defined in src/misc.c.
+	  The behavior of them is the same as the initial release, but
+	  readability was improved.
+	
+	* One of the most important stages during the development process
+	  has been added: testing. Test suites demonstrate the right
+	  working of several functions which manage dynamic data structures
+	  under normal conditions and worst-case scenarios.
+	
+	* Bots are smarter than earlier versions: every time they pick up
+	  a big number of cards from the deck perform computation based on
+	  digraphs in order to determine how many cards they can dispatch
+	  in their turns. See main.c:bot_play() or test/digraph_generic.c
+	  to know how to implement solutions to your projects using digraphs.
+	
+	* Added the field .specialpts in the struct @player to keep a
+	  counter of the special points that each player can add or
+	  subtract to its own scores in the current hand. Players will add
+	  1 extra point every time they get six cards from the deck and will
+	  subtract 1 point when dispatch at least four cards in their turns.
+	
+	* Removed subdirectory "cards/". The image of each card is now
+	  packed by suits in the subdirectory "res/" (e.g., cards of clubs
+	  are grouped in res/suit-clubs.png, etc).
+	
+	* Added short and long command line options parsing to give to the
+	  user a chance to override the default values of many global
+	  variables. Type "nullify --help" to get a list of all the
+	  configurable settings.
+	
+	* The message showing the rules of the game when it is run is now
+	  loaded from the file "rules.txt" by print_rules() function.
+	
+	* getcardfromdeck() fixed. See BUGS for more detail.
+

@@ -1,46 +1,56 @@
 Nullify
 =======
 
-	Nullify is a turn-based cards videogame for Linux which goal is to get rid of all cards in hand
-(initially 5 cards). There are no winners, but there is a looser: last player who could not
-get rid of his/her cards.
+Nullify is a cards game for Linux which goal is to get rid of all of your cards.
+Each game is based on hands (formerly known as rounds) and each hand is based on
+turns. The hand ends when there is only one player who could not play all of the
+cards in its turns, with the number of them being added to its scores. The game
+ends when a player reaches the upper limit of scores allowed (default 16),
+becoming on the looser of the game.
 
 Main rule
 =========
 
-	When in turn, the player must either play a card of the same kind / number as last card played
-or pick up one card from the deck. If is not possible play the new card because it mismatches kind or
-number, you must to do right-click over the deck and the turn is updated to the next player.
+When in turn, the player must either play a card of the same kind / number as
+last card played or pick up one card from the deck. If is not possible play the
+new card because it mismatches kind or number, you must to do right-click over
+the deck and the turn is updated to the next player.
 
 Special cards
 =============
 
-	There are some cards with special meanings that modify either the amount of cards that
-you can play "in a single shot" or the amount of cards that you _must_ to get from the deck. The list is
-as follows:
+There are some cards with special meanings that modify either the amount of cards that
+you can play "in a single shot" or the amount of cards that you _must_ to get from
+the deck. The list is as follows:
 
 Ace and two
 -----------
-Each time a player dispatches an "A" or "2", the next player in turn will be
-forced to get up to 4 or 2 cards from the deck, respectively. As an exception to the rule, if the first
-card get is another "A" or "2" then the player can choose play that card, in which case the total sum
-of aces and two's played will be the amount of cards that the next player must get from the table.
+
+  Each time a player dispatches an "A" or "2", the next player in turn will be
+  forced to get up to 4 or 2 cards from the deck, respectively. As an exception
+  to the rule, if the first card get is another "A" or "2" then the player can choose
+  play that card, in which case the total sum of aces and two's played will be the
+  amount of cards that the next player must get from the table.
 
 Four and seven
 --------------
-Whether a "4" or "7" is played, another card of the same kind / number must be played.
 
-Jocker ("J")
-------------
-Likewise, but also the player can select the kind of cards to play.
+  Whether a "4" or "7" is played, another card of the same kind / number must be played.
+
+Jack
+----
+
+  Likewise, but also the player can select the kind of cards to play.
 
 Queen
 -----
-Whether a "Q" is played, the most immediate player in turn is skipped.
+
+  Whether a "Q" is played, the most immediate player in turn is skipped.
 
 King
 ----
-Whether a "K" is played, the rotation mode is toggled clockwise/counter-clockwise
+
+  Whether a "K" is played, the rotation mode is toggled clockwise/counter-clockwise
 
 Have fun ;-)
 

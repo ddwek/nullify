@@ -1,6 +1,4 @@
-SUBDIRS = src
-dist_doc_DATA = AUTHORS COPYING CREDITS INSTALL README
+SUBDIRS = src test
+dist_doc_DATA = AUTHORS BUGS ChangeLog COPYING CREDITS INSTALL README TODO
 resdir = $(datadir)/nullify/res
-cardsdir = $(datadir)/nullify/cards
-res_DATA = res/*.png
-cards_DATA = cards/*.png
+res_DATA = res/*.png res/icon.xbm res/rules.txt
