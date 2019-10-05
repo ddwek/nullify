@@ -1,3 +1,8 @@
+2019-10-05  Daniel Dwek  <todovirtual15@gmail.com>
+
+	0.2.1 Release
+	* Reset special points to 0 at the beginning of each hand.
+
 2019-10-01  Daniel Dwek  <todovirtual15@gmail.com>
 
 	0.2.0 Release

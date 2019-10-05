@@ -655,6 +655,9 @@ int init_players(int n)
 		// Player is active in the current hand (i.e., this bot can play cards when in turn)
 		player[i].active = TRUE;
 
+		// Reset the special points collected in the previous hand
+		player[i].specialpts = 0;
+
 		player[i].list = dllst_initlst(player[i].list, "I:I:");
 		for (j=0;j<5;j++) {
 			fields.suit   = CARD_SUIT(deck_list->head);

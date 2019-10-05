@@ -15,3 +15,6 @@ Option "--enable-xml-logs=yes" adds built-in support of session dumping to
 XML files, useful if you are debugging the game or reporting bugs (you should include
 your session file in the latter case).
 
+XML support requires libxml2 headers and libs to be present on the system.
+Regardless of the latter, in all of the cases nullify depends on libX11,
+libpng and librt to compile and link.
