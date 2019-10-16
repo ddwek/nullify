@@ -25,10 +25,6 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
-xmlDocPtr xml_logfile = NULL;
-xmlNodePtr session_node = NULL, game_node = NULL;
-xmlNodePtr hand_node = NULL, turn_node = NULL, node = NULL;
-
 #define do_LIBXML_TEST_VERSION		LIBXML_TEST_VERSION
 #define do_xmlNewDoc(v,s)		{ v = xmlNewDoc(BAD_CAST "1.0"); }
 #define do_xmlDocSetRootElement(d,n)	{ xmlDocSetRootElement(d, n); }
@@ -39,7 +35,16 @@ xmlNodePtr hand_node = NULL, turn_node = NULL, node = NULL;
 #define do_xmlSaveFormatFileEnc(f,d)	{ xmlSaveFormatFileEnc(f, d, "UTF-8", 1); }
 #define do_xmlFreeDoc(d)		{ xmlFreeDoc(d); }
 #define do_xmlCleanupParser()		{ xmlCleanupParser(); }
+#define do_xmlParseFile(doc,file)	{ doc = xmlParseFile(file); }
+#define do_xmlDocGetRootElement(n,d)	{ n = xmlDocGetRootElement(d); }
+#define do_xmlStrcmp(res,str1,str2)	{ res = xmlStrcmp(str1, str2); }
+#define do_xmlGetProp(res,n,str)	{ res = xmlGetProp(n, (const xmlChar *)str); }
+#define do_xmlCopyNode(new,old,rec)	{ new = xmlCopyNode(old, rec); }
+#define do_xmlNodeGetContent(str,node)	{ str = xmlNodeGetContent(node); }
+#define do_xmlCreateIntSubset(d,e,fn)	{ xmlCreateIntSubset(d, BAD_CAST e, NULL, BAD_CAST fn); }
 #else
+typedef void * xmlDocPtr;
+typedef void * xmlNodePtr;
 #define do_LIBXML_TEST_VERSION
 #define do_xmlNewDoc(v,s)
 #define do_xmlDocSetRootElement(d,n)
@@ -50,5 +55,12 @@ xmlNodePtr hand_node = NULL, turn_node = NULL, node = NULL;
 #define do_xmlSaveFormatFileEnc(f,d)
 #define do_xmlFreeDoc(d)
 #define do_xmlCleanupParser()
+#define do_xmlParseFile(doc,file)
+#define do_xmlDocGetRootElement(n,d)
+#define do_xmlStrcmp(res,str1,str2)
+#define do_xmlGetProp(res,n,str)
+#define do_xmlCopyNode(new,old,rec)
+#define do_xmlNodeGetContent(str,node)
+#define do_xmlCreateIntSubset(d,e,fn)
 #endif
 #endif

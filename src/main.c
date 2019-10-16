@@ -35,6 +35,7 @@
 #include "digraph.h"
 #include "misc.h"
 #include "xmlwrappers.h"
+#include "replay.h"
 
 // some convenience defines
 #define NPLAYERS		4
@@ -129,14 +130,22 @@ dllst_t *deck_list = NULL, *played_list = NULL;
 int card_row[NPLAYERS] = { 0 };
 int playing_x[NPLAYERS] = { 0 }, playing_y[NPLAYERS] = { 0 };
 int getatmost, lastsuit, rotation;
-int skipframes = 2;
-int game_total = 16;
-boolean_t show_bot_cards = FALSE;
-boolean_t savelog = FALSE;
-char *logfilename = NULL;
+char *suitstr[] = { "CLUBS", "DIAMONDS", "HEARTS", "SPADES" };
 boolean_t hand_finished = FALSE;
 gui_dialog_t *dialog = NULL;
 gui_button_t *newhand_button = NULL, *newgame_button = NULL;
+int skipframes = 2;
+int game_total = 16;
+boolean_t show_bot_cards = FALSE;
+char *logfilename = NULL;
+char *userdir = NULL;
+#if defined(HAVE_XML_LOGS)
+boolean_t savelog = FALSE;
+int replaygame = 0, replayhand = 0;
+xmlDocPtr xml_logfile = NULL, xml_inputfile = NULL;
+xmlNodePtr session_node = NULL, game_node = NULL;
+xmlNodePtr hand_node = NULL, turn_node = NULL, node = NULL;
+#endif
 struct {
 	unsigned int suit;
 	unsigned int unused0;
@@ -171,7 +180,7 @@ void do_buttondown(XButtonEvent *bp);
 void do_timer(union sigval tp);
 void do_exit(void);
 
-int main(int argc, char **argv)
+int main(int argc, char **argv, char **env)
 {
 	int i, j, opt;
 	char filename[96] = { '\0' };
@@ -183,13 +192,21 @@ int main(int argc, char **argv)
 		{ "name",       required_argument, NULL, 'n' },
 		{ "debug",      no_argument, NULL, 'd' },
 		{ "skipframes", required_argument, NULL, 'f' },
+		{ "total",      required_argument, NULL, 't' },
+#if defined(HAVE_XML_LOGS)
 		{ "savelog",    no_argument, NULL, 's' },
 		{ "logfile",    required_argument, NULL, 'l' },
-		{ "total",      required_argument, NULL, 't' },
+		{ "replay-file",required_argument, NULL, 'R' },
+		{ "replay-hand",required_argument, NULL, 'H' },
+		{ "list-hands", required_argument, NULL, 'L' },
+#endif
 		{ "version",    no_argument, NULL, 'v' },
 		{ "help",       no_argument, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
 	};
+#if defined(HAVE_XML_LOGS)
+	xmlNodePtr rootnode = NULL;
+#endif
 
 
 	XInitThreads();
@@ -229,13 +246,17 @@ int main(int argc, char **argv)
 	XSetForeground(display, gc_anim[6],  0xeaf6a9);
 	XSetForeground(display, gc_anim[7],  0xff9d3e);
 
-	strcpy(player[0].name, "Human");
-	strcpy(player[1].name, "Bot_1");
-	strcpy(player[2].name, "Bot_2");
-	strcpy(player[3].name, "Bot_3");
+	// Read game settings from the installation data directory
+	if (parse_conf_file("/usr/local/share/nullify/res/nullify.conf")) {
+		strcpy(player[0].name, "Human");
+		strcpy(player[1].name, "Bot_1");
+		strcpy(player[2].name, "Bot_2");
+		strcpy(player[3].name, "Bot_3");
+		printf("Failed to get default values from config file\n");
+	}
 
 	// Parse the command line options
-	while ((opt = getopt_long(argc, argv, "n:df:sl:t:vh", longoptions, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "n:df:sl:t:R:H:L:vh", longoptions, NULL)) != -1) {
 		switch (opt) {
 		case 'n':
 			strncpy(player[0].name, optarg, 19);
@@ -248,19 +269,36 @@ int main(int argc, char **argv)
 			if (skipframes < 1)
 				skipframes = 1;
 			break;
-		case 's':
-			savelog = TRUE;
-			break;
-		case 'l':
-			logfilename = (char *)calloc(1, strlen(optarg) + 1);
-			if (logfilename)
-				strcpy(logfilename, optarg);
-			break;
 		case 't':
 			game_total = strtol(optarg, NULL, 10);
 			if (game_total < 1)
 				game_total = 16;
 			break;
+#if defined(HAVE_XML_LOGS)
+		case 's':
+			savelog = TRUE;
+			break;
+		case 'l':
+			free(logfilename);
+			logfilename = NULL;
+			logfilename = (char *)calloc(1, strlen(optarg) + 1);
+			if (logfilename)
+				strcat(logfilename, optarg);
+			break;
+		case 'R':
+			rootnode = parse_xml_session(optarg);
+			break;
+		case 'H':
+			replaygame = get_nth_field(optarg, 0);
+			replayhand = get_nth_field(optarg, 1);
+			break;
+		case 'L':
+			printf("Reading games and hands from %s:\n", optarg);
+			printf("Games\tHands\n");
+			replay_list_hands(parse_xml_session(optarg));
+			return 0;
+			break;
+#endif
 		case 'v':
 			printf("%s\nPlease report any bug you find to <%s>\n",
 				PACKAGE_STRING, PACKAGE_BUGREPORT);
@@ -271,11 +309,13 @@ int main(int argc, char **argv)
 		};
 	}
 
+#if defined(HAVE_XML_LOGS)
 	// Create the root node of the XML file
 	do_LIBXML_TEST_VERSION;
 	do_xmlNewDoc(xml_logfile, "1.0");
 	do_xmlNewNode(session_node, "session");
 	do_xmlDocSetRootElement(xml_logfile, session_node);
+	do_xmlCreateIntSubset(xml_logfile, "session", "/usr/local/share/nullify/res/nullify.dtd");
 
 	for (i=0;i<4;i++) {
 		do_xmlNewChild(node, session_node, "player", player[i].name);
@@ -287,6 +327,17 @@ int main(int argc, char **argv)
 	sprintf(str, "%u", ngame);
 	do_xmlNewProp(game_node, "id", str);
 	do_xmlAddChild(session_node, game_node);
+
+	if (rootnode) {
+		xml_inputfile = replay_select_hand(rootnode, replaygame, replayhand);
+		if (!xml_inputfile) {
+			printf("Requested game:hand is inexistent.\n"
+				"Use \"--list-hands=<file>\" option to list "
+				"available hands from <file>\n");
+			return 1;
+		}
+	}
+#endif
 
 	dllst_verbose = 0;
 	for (i=0;i<4;i++) {
@@ -340,6 +391,7 @@ int main(int argc, char **argv)
 	do_timer_prepare(&playing_timer, do_timer, 2);
 	do_timer_prepare(&table_timer, do_timer, 3);
 
+	userdir = expand_tilde(env);
 	atexit(do_exit);
 
 	XNextEvent(display, &event);
@@ -384,14 +436,20 @@ usage:
 	printf("  -f --skipframes=<n>      Set the amount of frames to skip during animations.\n");
 	printf("                           <n> must be an integer different than zero\n");
 	printf("\n");
+	printf("  -t --total=<n>           Specify play each game up to <n> points is to be reached\n");
+	printf("                           (default = 16)\n");
+#if defined(HAVE_XML_LOGS)
 	printf("  -s --savelog             Save the session log when the game exits (it must have\n");
 	printf("                           been compiled with the --enable-xml-logs=yes option)\n");
 	printf("\n");
 	printf("  -l --logfile=<filename>  Save the session log to <filename> rather than\n");
-	printf("                           to the default file \".nullify-session.xml\"\n");
+	printf("                           to the default file \"~/.nullify-session.xml\"\n");
 	printf("\n");
-	printf("  -t --total=<n>           Specify play each game up to <n> points is to be reached\n");
-	printf("                           (default = 16)\n");
+	printf("  -R --replay-file=<file>  Reproduce a saved game by reading it from XML <file>\n");
+	printf("  -H --replay-hand=<g:h>   Reproduce the specified hand <h> of the game <g> only\n");
+	printf("  -L --list-hands=<file>   Show available games and hands to replay from XML session\n");
+	printf("                           <file> and exit\n");
+#endif
 	printf("  -v --version             Print the program version and exit\n");
 	printf("  -h --help                Display this message\n");
 	return -1;
@@ -576,8 +634,8 @@ void render_resource(struct resource_st *res, int X, int Y)
 void init_deck(void)
 {
 	int i, j;
-	char card[4] = { '\0' };
-	char buf[192] = { '\0' };
+	char card[8] = { '\0' };
+	char buf[256] = { '\0' };
 	dllst_item_struct_t *iter;
 
 
@@ -689,11 +747,26 @@ int init_players(int n)
 
 void init_hand(void)
 {
-	long now;
-	char str[64] = { '\0' };
+	long now = 0;
+	char str[64] = { '\0' }, *rseedstr = NULL;
+	xmlNodePtr current_node = NULL;
 
 
+#if defined(HAVE_XML_LOGS)
+	if (!xml_inputfile) {
+		now = time(NULL);
+	} else {
+		// get the random seed attribute of the element 'hand'
+		do_xmlDocGetRootElement(current_node, xml_inputfile);
+		current_node = replay_get_next_matching_iter(current_node, "hand");
+		do_xmlGetProp(rseedstr, current_node, "rseed");
+		if (rseedstr)
+			now = strtol(rseedstr, NULL, 0x10);
+		current_node = replay_get_next_matching_iter(current_node, "turn");
+	}
+#else
 	now = time(NULL);
+#endif
 	srand(now);
 
 	do_xmlNewNode(hand_node, "hand");
@@ -720,6 +793,15 @@ void init_hand(void)
 	getatmost = 0;
 	lastsuit = CARD_SUIT(played_list->tail);
 	rotation = 1;
+
+#if defined(HAVE_XML_LOGS)
+	if (xml_inputfile) {
+		savelog = FALSE;
+		do_exposure(&event.xexpose);
+		replay_hand(current_node);
+		return;
+	}
+#endif
 
 	printf("%s:\n", player[turn].name);
 
@@ -1255,6 +1337,9 @@ int getcardfromdeck(int nplayer, action_t act)
 {
 	int i;
 	long j;
+	char card[8] = { '\0' };
+	char buf[256] = { '\0' };
+	dllst_item_struct_t *iter;
 
 
 getcard:
@@ -1307,6 +1392,15 @@ getcard:
 
 		for (i=0;i<deck_list->size;i++)
 			dllst_swapitems(deck_list, i, rand() % deck_list->size);
+
+		for (iter=deck_list->head;iter;iter=iter->next) {
+			sprintf(card, "%02d ", CARD_SUIT(iter) * 13 + CARD_NUMBER(iter));
+			strcat(buf, card);
+		}
+
+		do_xmlNewNode(node, "deck");
+		do_xmlNewProp(node, "list", buf);
+		do_xmlAddChild(hand_node, node);
 
 		goto getcard;
 	}
@@ -1502,10 +1596,14 @@ void bot_play(int n)
 					if (CARD_SUIT(iter) == ret_suit && CARD_NUMBER(iter) == ret_number)
 						break;
 
-				if (ret_number == CARD_JACK(ret_suit) % 13)
+				if (ret_number == CARD_JACK(ret_suit) % 13) {
 					lastsuit = get_suit_selector(THIS_CARD);
-				else
+					sprintf(message, "%s selected", suitstr[lastsuit]);
+					printf("\t%s\n", message);
+					do_xmlNewChild(node, turn_node, "msg", message);
+				} else {
 					lastsuit = ret_suit;
+				}
 
 				playcard(n, ret_suit, ret_number, &j);
 
@@ -1598,11 +1696,13 @@ getmorecards:
 			if (getatmost) {
 				sprintf(message, "Getting %d cards from the deck", getatmost);
 				printf("\t%s\n", message);
-				do_xmlNewChild(node, turn_node, "msg", message);
 				for (j=0;j<getatmost;j++) {
 					xcard = getcardfromdeck(n, ADD_CARD);
 					if (xcard == -1)
 						return;
+
+					sprintf(message, "Getting 1 card from the deck");
+					do_xmlNewChild(node, turn_node, "msg", message);
 
 					if (!j &&
 					    (xcard == CARD_TWO(xcard / 13) ||
@@ -1637,6 +1737,9 @@ getmorecards:
 				xcard = getcardfromdeck(n, ADD_CARD);
 				if (xcard == -1)
 					return;
+
+				sprintf(message, "Getting 1 card from the deck");
+				do_xmlNewChild(node, turn_node, "msg", message);
 			}
 		}
 
@@ -1851,13 +1954,15 @@ void do_buttondown(XButtonEvent *bp)
 			if (getatmost) {
 				sprintf(message, "Getting %lu cards from the deck", limit);
 				printf("\t%s\n", message);
-				do_xmlNewChild(node, turn_node, "msg", message);
 			}
 
 			for (;moves<limit;moves++) {
 				xcard = getcardfromdeck(HUMAN, ADD_CARD);
 				if (xcard == -1)
 					return;
+
+				sprintf(message, "Getting 1 card from the deck");
+				do_xmlNewChild(node, turn_node, "msg", message);
 
 				if (!moves && limit > 1 &&
 				    (xcard == CARD_TWO(xcard / 13) ||
@@ -1892,6 +1997,9 @@ void do_buttondown(XButtonEvent *bp)
 				lastsuit = i;
 				update_table(EXPOSURE_SUIT);
 				update_cards(HUMAN, EXPOSURE_CARD, NULL);
+				sprintf(message, "%s selected", suitstr[lastsuit]);
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
 				return;
 			}
 		}
@@ -2013,6 +2121,10 @@ void do_buttondown(XButtonEvent *bp)
 				do_timer_unset(playing_timer);
 				do_timer_unset(table_timer);
 
+				sprintf(message, "I have no cards matching suit or number as last card played");
+				printf("\t%s\n", message);
+				do_xmlNewChild(node, turn_node, "msg", message);
+
 				update_turn(FLAGS_NONE);
 				while (turn != HUMAN && getactiveplayers() > 1)
 					bot_play(turn);
@@ -2094,17 +2206,27 @@ void do_timer(union sigval tp)
 void do_exit(void)
 {
 	int i;
+	char *default_file = NULL;
 
 
 	printf("Bye!\n");
-
+#if defined(HAVE_XML_LOGS)
 	if (savelog) {
 		if (logfilename) {
 			do_xmlSaveFormatFileEnc(logfilename, xml_logfile);
 		} else {
-			do_xmlSaveFormatFileEnc(".nullify-session.xml", xml_logfile);
+			i = strlen(userdir) + strlen("/.nullify-session.xml");
+			default_file = (char *)calloc(1, i + 1);
+			if (default_file) {
+				strcat(default_file, userdir);
+				strcat(default_file, "/.nullify-session.xml");
+				do_xmlSaveFormatFileEnc(default_file, xml_logfile);
+			}
+			free(userdir);
+			free(default_file);
 		}
 	}
+#endif
 	do_xmlFreeDoc(xml_logfile);
 	do_xmlCleanupParser();
 

@@ -1,0 +1,180 @@
+'\" t
+.\"     Title: nullify
+.\"    Author: [see the "AUTHORS" section]
+.\" Generator: DocBook XSL Stylesheets v1.79.1 <http://docbook.sf.net/>
+.\"      Date: 10/15/2019
+.\"    Manual: Linux Games
+.\"    Source: Linux Games
+.\"  Language: English
+.\"
+.TH "NULLIFY" "6" "10/15/2019" "Linux Games" "Linux Games"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+nullify \- Game of cards for Linux whose goal is to get rid all of your cards
+.SH "SYNOPSIS"
+.HP \w'\fBnullify\fR\ 'u
+\fBnullify\fR [\fBoptions\fR]
+.SS "OPTIONS"
+.PP
+Available options are:
+.PP
+\fB\-n \-\-name=<yourname>\fR
+.RS 4
+Set your name to something other than "Human"
+.RE
+.PP
+\fB\-d \-\-debug\fR
+.RS 4
+It allows show the cards of the bots
+.RE
+.PP
+\fB\-f \-\-skipframes=<n>\fR
+.RS 4
+Set the amount of frames to skip during animations\&. <n> must be an integer different than zero
+.RE
+.PP
+\fB\-t \-\-total=<n>\fR
+.RS 4
+Specify play each game up to <n> points is to be reached (default = 16)
+.RE
+.PP
+\fB\-s \-\-savelog\fR
+.RS 4
+Save the session log when the game exits (it must have been compiled with the \-\-enable\-xml\-logs=yes option)
+.RE
+.PP
+\fB\-l \-\-logfile=<filename>\fR
+.RS 4
+Save the session log to <filename> rather than to the default file "~/\&.nullify\-session\&.xml"
+.RE
+.PP
+\fB\-R \-\-replay\-file=<file>\fR
+.RS 4
+Reproduce a saved game by reading it from XML <file>
+.RE
+.PP
+\fB\-H \-\-replay\-hand=<g:h>\fR
+.RS 4
+Reproduce the specified hand <h> of the game <g> only
+.RE
+.PP
+\fB\-L \-\-list\-hands=<file>\fR
+.RS 4
+Show available games and hands to replay from XML session <file> and exit
+.RE
+.PP
+\fB\-v \-\-version\fR
+.RS 4
+Print the program version and exit
+.RE
+.PP
+\fB\-h \-\-help\fR
+.RS 4
+Display this message
+.RE
+.SH "DESCRIPTION"
+.PP
+Nullify is a cards game for Linux which goal is to get rid of all of your cards\&. Each game is based on hands (formerly known as rounds) and each hand is based on turns\&. The hand ends when there is only one player who could not play all of the cards in its turns, with the number of them being added to its scores\&. The game ends when a player reaches the upper limit of scores allowed (default 16), becoming on the looser of the game\&.
+.SH "MAIN RULE"
+.PP
+When in turn, the player must either play a card of the same kind / number as last card played or pick up one card from the deck\&. If is not possible play the new card because it mismatches kind or number, you must to do right\-click over the deck and the turn is updated to the next player\&.
+.SH "SPECIAL CARDS"
+.PP
+There are some cards with special meanings that modify either the amount of cards that you can play "in a single shot" or the amount of cards that you _must_ to get from the deck\&. The list is as follows:
+.PP
+\fBAce and two\fR
+.RS 4
+Each time a player dispatches an "A" or "2", the next player in turn will be forced to get up to 4 or 2 cards from the deck, respectively\&. As an exception to the rule, if the first card get is another "A" or "2" then the player can choose play that card, in which case the total sum of aces and two\*(Aqs played will be the amount of cards that the next player must get from the table\&.
+.RE
+.PP
+\fBFour and seven\fR
+.RS 4
+Whether a "4" or "7" is played, another card of the same kind / number must be played\&.
+.RE
+.PP
+\fBJack\fR
+.RS 4
+Likewise, but also the player can select the kind of cards to play\&.
+.RE
+.PP
+\fBQueen\fR
+.RS 4
+Whether a "Q" is played, the most immediate player in turn is skipped\&.
+.RE
+.PP
+\fBKing\fR
+.RS 4
+Whether a "K" is played, the rotation mode is toggled clockwise/counter\-clockwise\&.
+.RE
+.SH "CONFIGURATION"
+.PP
+Nullify reads default game options from the system configuration file
+/usr/local/share/nullify/res/nullify\&.conf\&. This file contains one "keyword=value" pair per line, where "keyword" and its valid values are as it follows:
+.PP
+\fBPlayer0\fR
+.RS 4
+Your name (defaults to "Human")\&. Only ASCII alphanumeric characters are currently supported\&. Also, the name will be truncated if its length is greater than or equal to 20\&.
+.RE
+.PP
+\fBPlayer1\fR
+.RS 4
+Name of the first bot (the leftmost one)\&. Constraints for Player0 name apply too\&.
+.RE
+.PP
+\fBPlayer2\fR
+.RS 4
+Name of the second bot (the topmost one)\&. Constraints for Player0 name apply too\&.
+.RE
+.PP
+\fBPlayer3\fR
+.RS 4
+Name of the third bot (the rightmost one)\&. Constraints for Player0 name apply too\&.
+.RE
+.PP
+\fBDebug\fR
+.RS 4
+Set to 1 to show the cards of the bots\&. Possible values are 0 (default) and integers other than 0\&.
+.RE
+.PP
+\fBSkipFrames\fR
+.RS 4
+Amount of non\-rendered frames when either a player gets a card from the deck or plays one card to the stack\&. The lower this integer is, the slower will be the animations\&. Possible values are 1\-MAX_INT, being 2 the default value\&.
+.RE
+.PP
+\fBTotal\fR
+.RS 4
+Set the upper bound to be reached by any player, becoming itself on the looser of the current game and then start a new game\&. Default value is 16, which is best suited for the vast majority of games that I played\&. Keep in mind that set it to greater values can result on you spending too many of your precious hours, because after each hand some bots can add negative points to their scores\&.
+.RE
+.PP
+\fBLogFilename\fR
+.RS 4
+Filename where to save the session log if "\-\-savelog" option was provided on the command line and the game was compiled with XML support; otherwise, is ignored (defaults to "~/\&.nullify\-session\&.xml")\&.
+.RE
+.SH "FILES"
+.PP
+/usr/local/share/nullify/res/nullify\&.conf
+.RS 4
+Default settings read prior command line parsing is performed\&.
+.RE
+.SH "AUTHORS"
+.PP
+This manual page was written by Daniel Dwek
+<todovirtual15@gmail\&.com>\&.

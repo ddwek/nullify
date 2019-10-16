@@ -39,5 +39,8 @@ void do_timer_prepare(timer_t *timerid, void (*notify_fn)(union sigval), int fn_
 void do_timer_set(timer_t *timerid, time_t secs, signed long nsecs);
 void do_timer_unset(timer_t *timerid);
 void decode_card_rev(char *card, int *ret_suit, int *ret_number);
+int get_nth_field(char *str, int n);
+char *expand_tilde(char **environment);
+char *dict_get_value(char *definition);
+int parse_conf_file(char *filename);
 #endif
-

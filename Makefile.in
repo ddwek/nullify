@@ -311,10 +311,15 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-SUBDIRS = src test
+SUBDIRS = src test doc
 dist_doc_DATA = AUTHORS BUGS ChangeLog COPYING CREDITS INSTALL README TODO
 resdir = $(datadir)/nullify/res
-res_DATA = res/*.png res/icon.xbm res/rules.txt
+res_DATA = res/*.png \
+	   res/icon.xbm \
+	   res/rules.txt \
+	   res/nullify.dtd \
+	   res/nullify.conf
+
 all: all-recursive
 
 .SUFFIXES:

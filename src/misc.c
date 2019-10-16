@@ -22,12 +22,26 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include "dllst.h"
 #include "misc.h"
 
 #define SUIT_CLUBS              0
 #define SUIT_DIAMONDS           1
 #define SUIT_HEARTS             2
 #define SUIT_SPADES             3
+
+extern struct player_st {
+        char name[20];
+        boolean_t active;
+        dllst_t *list;
+        float probabilities[17];
+        int scores;
+        int specialpts;
+} player[4];
+extern int skipframes;
+extern int game_total;
+extern int show_bot_cards;
+extern char *logfilename;
 
 /*
  *
@@ -217,5 +231,200 @@ void decode_card_rev(char *card, int *ret_suit, int *ret_number)
 		*ret_suit = SUIT_SPADES;
 		break;
 	};
+}
+
+/*
+ *
+ * Get the @n field of the colon-separated (':') list of fields in @str.
+ * Return such a field converted to integer.
+ *
+ */
+int get_nth_field(char *str, int n)
+{
+	int i, j = 0, t = 0, c = 0;
+	int ret;
+	char *buf = NULL;
+
+
+	buf = (char *)calloc(1, strlen(str) + 1);
+	if (!buf)
+		return 0;
+
+	for (i=0;i<strlen(str);i++) {
+		if (str[i] == ':') {
+			if (c != n) {
+				c++;
+				j = i + 1;
+				continue;
+			}
+
+			for (t=j;t<i;t++)
+				buf[t - j] = str[t];
+			buf[t] = '\0';
+			ret = strtol(buf, NULL, 10);
+			free(buf);
+			return ret;
+		}
+	}
+
+	for (t=j;t<i;t++)
+		buf[t - j] = str[t];
+	buf[t] = '\0';
+	ret = strtol(buf, NULL, 10);
+	free(buf);
+	return ret;
+}
+
+/*
+ *
+ * Search for the value of the environment variable $HOME and return it.
+ *
+ */
+char *expand_tilde(char **environment)
+{
+	int i, j;
+	char *ret = NULL;
+
+
+	for (i=0;;i++) {
+		if (strlen(environment[i]) >= 5 && !strncmp(environment[i], "HOME=", 5)) {
+			ret = (char *)calloc(1, strlen(environment[i]) - 5 + 1);
+			if (ret) {
+				for (j=5;j<strlen(environment[i]);j++)
+					ret[j - 5] = environment[i][j];
+			}
+
+			break;
+		}
+	}
+
+	return ret; 
+}
+
+/*
+ *
+ * Get the value from a "keyword=value" pair in @definition.
+ * Return the value as a string.
+ *
+ */
+char *dict_get_value(char *definition)
+{
+	int i, j = 0;
+	char *value = NULL;
+
+
+	if (!definition)
+		return NULL;
+
+	for (i=0;i<strlen(definition);i++) {
+		if (definition[i] == '=') {
+			j = i + 1;
+			break;
+		}
+	}
+
+	if (j == i + 1) {
+		value = (char *)calloc(1, strlen(definition) - j + 1);
+		if (!value)
+			return NULL;
+	}
+
+	for (i=j;i<strlen(definition);i++)
+		value[i - j] = definition[i];
+
+	return value;
+}
+
+/*
+ *
+ * Read settings from the configuration file @filename and set
+ * many global variables to those values. Only "Player0", "Player1",
+ * "Player2", "Player3", "Debug", "SkipFrames", "Total" and
+ * "LogFilename" are valid keywords.
+ *
+ * Return -1 if @filename could not be open, -2 if allocation
+ * errors have ocurred, -4 if @filename does not contain the
+ * string "[nullify configuration]" and 0 otherwise.
+ *
+ */
+int parse_conf_file(char *filename)
+{
+	int i, j, t, fd;
+	struct stat fd_stat;
+	unsigned char *fd_buf = NULL;
+	char *conf = NULL, *line = NULL;
+
+
+	fd = open(filename, O_RDONLY);
+	if (!fd) {
+		printf("Could not open %s\n", filename);
+		return -1;
+	}
+
+	fstat(fd, &fd_stat);
+	fd_buf = (unsigned char *)calloc(1, fd_stat.st_size + 1);
+	if (!fd_buf) {
+		printf("Could not allocate %ld bytes\n", fd_stat.st_size + 1);
+		close(fd);
+		return -2;
+	}
+
+	read(fd, fd_buf, fd_stat.st_size);
+	close(fd);
+
+	conf = strstr(fd_buf, "[nullify configuration]");
+	if (!conf) {
+		free(fd_buf);
+		return -4;
+	}
+
+	for (i=0,j=0;i<strlen(conf);i++) {
+		if (conf[i] == '\n') {
+			free(line);
+			line = NULL;
+			line = (char *)calloc(1, i - j + 1);
+			if (!line) {
+				free(fd_buf);
+				return -2;
+			}
+
+			for (t=j;t<i;t++)
+				line[t - j] = conf[t];
+
+			if (strlen(line) >= 8 && !strncmp(line, "Player0=", 8)) {
+				strncpy(player[0].name, dict_get_value(line), 19);
+
+			} else if (strlen(line) >= 8 && !strncmp(line, "Player1=", 8)) {
+				strncpy(player[1].name, dict_get_value(line), 19);
+
+			} else if (strlen(line) >= 8 && !strncmp(line, "Player2=", 8)) {
+				strncpy(player[2].name, dict_get_value(line), 19);
+
+			} else if (strlen(line) >= 8 && !strncmp(line, "Player3=", 8)) {
+				strncpy(player[3].name, dict_get_value(line), 19);
+
+			} else if (strlen(line) >= 6 && !strncmp(line, "Debug=", 6)) {
+				show_bot_cards = strtol(dict_get_value(line), NULL, 10);
+
+			} else if (strlen(line) >= 11 && !strncmp(line, "SkipFrames=", 11)) {
+				skipframes = strtol(dict_get_value(line), NULL, 10);
+
+			} else if (strlen(line) >= 6 && !strncmp(line, "Total=", 6)) {
+				game_total = strtol(dict_get_value(line), NULL, 10);
+
+			} else if (strlen(line) >= 12 && !strncmp(line, "LogFilename=", 12)) {
+				logfilename = (char *)calloc(1, strlen(dict_get_value(line)) + 1);
+				if (logfilename)
+					strcpy(logfilename, dict_get_value(line));
+			}
+
+			j = i + 1;
+		}
+	}
+
+	free(fd_buf);
+	free(line);
+
+	return 0;
 }
 

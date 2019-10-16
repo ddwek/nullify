@@ -1,11 +1,7 @@
-This is the list of items to add / modify / remove from the current version:
+This is the list of items to add to, modify or remove from the
+current version:
 
-* Add replaying of saved XML session files.
-
-* Add parsing of configuration input file.
-
-* Write DocBook documentation in order to produce fancy manpages
-  easier than writing it by hand.
+* Nothing scheduled by now.
 
 Next is the list of things I tried hard to find a solution over and over
 again and I only got "frustrations":
@@ -21,4 +17,3 @@ again and I only got "frustrations":
 
 If you got the answer to any of them, just let me know by writing me to
 <todovirtual15@gmail.com>. Your collaboration will be very appreciated!
-

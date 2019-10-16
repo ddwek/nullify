@@ -1,0 +1,35 @@
+<!ELEMENT session (player | game)*>
+
+<!ELEMENT player (#PCDATA)>
+<!ATTLIST player id CDATA #REQUIRED>
+
+<!ELEMENT game (hand)*>
+<!ATTLIST game id CDATA #REQUIRED>
+
+<!ELEMENT hand (deck | playerlist | turn | scores)*>
+<!ATTLIST hand
+		id	CDATA	#REQUIRED
+		rseed	CDATA	#REQUIRED>
+
+<!ELEMENT deck EMPTY>
+<!ATTLIST deck list CDATA #REQUIRED>
+
+<!ELEMENT playerlist EMPTY>
+<!ATTLIST playerlist
+		id	CDATA	#REQUIRED
+		list	CDATA	#REQUIRED>
+
+<!ELEMENT turn (card | msg | possibility)*>
+<!ATTLIST turn id CDATA #REQUIRED>
+
+<!ELEMENT card (#PCDATA)>
+
+<!ELEMENT msg (#PCDATA)>
+
+<!ELEMENT possibility (#PCDATA)>
+<!ATTLIST possibility id CDATA #REQUIRED>
+
+<!ELEMENT scores EMPTY>
+<!ATTLIST scores
+		id	CDATA	#REQUIRED
+		total	CDATA	#REQUIRED>
