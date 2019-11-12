@@ -62,8 +62,6 @@
 #define DECK_Y			((600 - CARD_HEIGHT) / 2)
 #define STACK_OF_PLAYED_X	(DECK_X + CARD_WIDTH + 7)
 #define STACK_OF_PLAYED_Y	DECK_Y
-#define FLAGS_NONE		0
-#define FLAGS_QUEEN		1
 #define HUMAN			0
 #define BOT_1			1
 #define BOT_2			2
@@ -165,13 +163,12 @@ void add_selector(struct resource_st *card, int x, int dx, int y);
 void del_selector(struct resource_st *card, int x, int dx, int y);
 void update_cards(int nplayer, action_t act, void *param);
 void update_table(action_table_t act);
-void update_turn(int flags);
+void update_turn(void);
 char *decode_card(int suit, int number, boolean_t addnode);
 void animate_card(int nplayer, boolean_t isplaying, int suit, int number);
 int getcardfromdeck(int nplayer, action_t act);
 void playcard(int n, int suit, int number, unsigned long *param);
 void bot_calc_probabilities(int n);
-int bot_select_best_suit(int n);
 void bot_play(int n);
 int getactiveplayers(void);
 void finish_hand(void);
@@ -815,6 +812,10 @@ void init_hand(void)
  * Calculate probabilities for each suit / number of card in card list of the bot.
  * Bots select the card to play based on the suit/number of the card with less
  * probability than others.
+ * As of v0.3.1, the denominator is no longer a constant value for number and
+ * suit quotients. Instead, it now represents the amount of cards which neither
+ * belong to the @n bot nor to the stack of played cards, that is, the total
+ * number of cards of other players.
  *
  */
 void bot_calc_probabilities(int n)
@@ -822,12 +823,15 @@ void bot_calc_probabilities(int n)
 	int i;
 	unsigned counter[17];
 	dllst_item_struct_t *iter;
+	float total;
 
 
 	for (i=0;i<13;i++)
 		counter[i] = 4;
 	for (i=13;i<17;i++)
 		counter[i] = 13;
+
+	total = 52 - player[n].list->size - played_list->size;
 
 	for (i=0;i<13;i++) {
 		for (iter=player[n].list->head;iter;iter=iter->next)
@@ -840,7 +844,7 @@ void bot_calc_probabilities(int n)
 
 	// probabilities for the 13 numbers (ace up to king)
 	for (i=0;i<13;i++)
-		player[n].probabilities[i] = (float)counter[i] / (float)4.0;
+		player[n].probabilities[i] = (float)counter[i] / total;
 
 	for (i=0;i<4;i++) {
 		for (iter=player[n].list->head;iter;iter=iter->next)
@@ -853,7 +857,7 @@ void bot_calc_probabilities(int n)
 
 	// probabilities for the 4 suits
 	for (i=13;i<17;i++)
-		player[n].probabilities[i] = (float)counter[i] / (float)13.0;
+		player[n].probabilities[i] = (float)counter[i] / total;
 }
 
 /*
@@ -1104,43 +1108,44 @@ void update_table(action_table_t act)
  * then the next players in turn are BOT_2, BOT_1, HUMAN, BOT_3, etc).
  *
  */
-void update_turn(int flags)
+void update_turn(void)
 {
 	render_resource(&resource[RES_PLAYING_DISABLED], playing_x[turn], playing_y[turn]);
-	if (flags & FLAGS_QUEEN) {
+	if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_CLUBS) % 13    ||
+	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_DIAMONDS) % 13 ||
+	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_HEARTS) % 13   ||
+	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_SPADES) % 13) {
 		if (rotation == 1) {
-
-			// FIXME: (turn + 1) & (NPLAYERS - 1) is slightly faster than modulo op
-			while (!player[(turn + 1) % NPLAYERS].active) {
+			while (!player[(turn + 1) & 3].active) {
 				turn++;
-				turn %= NPLAYERS;
+				turn &= 3;
 			}
 			turn++;
-			turn %= NPLAYERS;
+			turn &= 3;
 		} else {
-			while (!player[(turn - 1) % NPLAYERS].active) {
+			while (!player[(turn - 1) & 3].active) {
 				turn--;
-				turn %= NPLAYERS;
+				turn &= 3;
 			}
 			turn--;
-			turn %= NPLAYERS;
+			turn &= 3;
 		}
 	}
 
 	if (rotation == 1) {
-		while (!player[(turn + 1) % NPLAYERS].active) {
+		while (!player[(turn + 1) & 3].active) {
 			turn++;
-			turn %= NPLAYERS;
+			turn &= 3;
 		}
 		turn++;
-		turn %= NPLAYERS;
+		turn &= 3;
 	} else {
-		while (!player[(turn - 1) % NPLAYERS].active) {
+		while (!player[(turn - 1) & 3].active) {
 			turn--;
-			turn %= NPLAYERS;
+			turn &= 3;
 		}
 		turn--;
-		turn %= NPLAYERS;
+		turn &= 3;
 	}
 	render_resource(&resource[RES_PLAYING_ENABLED], playing_x[turn], playing_y[turn]);
 
@@ -1386,7 +1391,7 @@ getcard:
 				finish_hand();
 				return -1;
 			} else {
-				update_turn(FLAGS_NONE);
+				update_turn();
 			}
 		}
 
@@ -1432,70 +1437,31 @@ void playcard(int n, int suit, int number, unsigned long *param)
 
 /*
  *
- * Bots select the best suit to switch when they play a jack depending on
- * how much cards of each suit they have.
- *
- */
-int bot_select_best_suit(int n)
-{
-	int i, ret, count[4] = { 0 };
-	dllst_t *dllst = NULL;
-	dllst_item_struct_t *iter;
-
-
-	for (iter=player[n].list->head;iter;iter=iter->next) {
-		switch (CARD_SUIT(iter)) {
-		case 0:
-			count[0]++;
-			break;
-		case 1:
-			count[1]++;
-			break;
-		case 2:
-			count[2]++;
-			break;
-		case 3:
-			count[3]++;
-			break;
-		};
-	}
-
-	dllst = dllst_initlst(dllst, "I:I:");
-	for (i=0;i<4;i++) {
-		fields.suit = i;
-		fields.number = count[i];
-		dllst_newitem(dllst, &fields);
-	}
-	dllst_sortby(dllst, 1, FALSE);
-	ret = *((int *)dllst->head->fields + 0);
-
-	while (dllst_delitem(dllst, 0)) {}
-	free(dllst);
-	dllst = NULL;
-
-	return ret;
-}
-
-/*
- *
  * Main function of bots game.
  *
  * Rain of gotos. Yes, I know, but label names are descriptive enough so that it does not
  * affect the readability of the code.
  *
  */
-#define THIS_CARD	table->names[*((unsigned *)paths->head->fields + t * 2)]
+#define THIS_CARD(x)	table->names[*((unsigned *)x->fields + t * 2)]
+#define LAST_CARD(x)	table->names[*((unsigned *)x->fields + (paths->fields_no - 1) * 2)]
 void bot_play(int n)
 {
 	long i = 0, j, t, id, min, moves = 0, xcard;
 	int ret_suit, ret_number;
 	unsigned cond_row;
-	dllst_item_struct_t *iter;
-	boolean_t cpuplayed = FALSE;
-	dllst_t *alternatives = NULL, *paths = NULL, *conds = NULL;
+	dllst_item_struct_t *iter, *iter2;
+	boolean_t cpuplayed = FALSE, match = FALSE;
+	dllst_t *alternatives = NULL, *paths = NULL, *conds = NULL, *prob = NULL;
 	char message[128] = { '\0' }, buf[64] = { '\0' };
 	char *pathstr = NULL;
 	digraph_table_t *table = NULL;
+	struct {
+		unsigned num;
+		int unused0;
+		float prb;
+		int unused1;
+	} prob_fields = { 0 };
 
 
 	do_xmlNewNode(turn_node, "turn");
@@ -1589,15 +1555,105 @@ void bot_play(int n)
 				pathstr = NULL;
 			}
 
+			/*
+			 *
+			 * So far, probabilities were computed for twos and aces only.
+			 * As of v0.3.1, they are calculated to choose which path is more
+			 * convenient to play according to the least number/suit probabilities
+			 * of the last card of each possible path. It is intended to
+			 * difficult to play a card of the same number for the next player,
+			 * which turns bots more evil (or smarter, depending on your point
+			 * of view).
+			 *
+			 */
+			bot_calc_probabilities(n);
+			prob = dllst_initlst(prob, "I:f:");
+			for (t=0;t<17;t++) {
+				prob_fields.num = t;
+				prob_fields.prb = player[n].probabilities[t];
+				dllst_newitem(prob, &prob_fields);
+			}
+			dllst_sortby(prob, 1, TRUE);
+
+#define DEBUG_PROBS	0
+#if DEBUG_PROBS
+			memset(buf, '\0', 64);
+			for (iter=prob->head;iter;iter=iter->next) {
+				switch (*((unsigned *)iter->fields + 0)) {
+				case 0:
+					buf[0] = ' ';
+					buf[1] = 'A';
+					break;
+				case 1 ... 9:
+					sprintf(buf, "%2u", *((unsigned *)iter->fields + 0) + 1);
+					break;
+				case 10:
+					buf[0] = ' ';
+					buf[1] = 'J';
+					break;
+				case 11:
+					buf[0] = ' ';
+					buf[1] = 'Q';
+					break;
+				case 12:
+					buf[0] = ' ';
+					buf[1] = 'K';
+					break;
+				case 13:
+					buf[0] = ' ';
+					buf[1] = 'C';
+					break;
+				case 14:
+					buf[0] = ' ';
+					buf[1] = 'D';
+					break;
+				case 15:
+					buf[0] = ' ';
+					buf[1] = 'H';
+					break;
+				case 16:
+					buf[0] = ' ';
+					buf[1] = 'S';
+					break;
+				};
+				printf("%s: %f\n", buf, *((float *)iter->fields + 2));
+				memset(buf, '\0', 64);
+			}
+#endif
+			match = FALSE;
+			for (iter=prob->head;iter;iter=iter->next) {
+				for (iter2=paths->head;iter2;iter2=iter2->next) {
+					decode_card_rev(LAST_CARD(iter2), &ret_suit, &ret_number);
+					if (*((unsigned *)iter->fields) == ret_number ||
+					    *((unsigned *)iter->fields) == ret_suit + 13) {
+						match = TRUE;
+						break;
+					}
+				}
+				if (match)
+					break;
+			}
+
+			while (dllst_delitem(prob, 0)) {}
+			free(prob);
+			prob = NULL;
+			if (!match)
+				iter2 = paths->head;
+
 			for (t=1;t<paths->fields_no;t++) {
-				decode_card_rev(THIS_CARD, &ret_suit, &ret_number);
+				decode_card_rev(THIS_CARD(iter2), &ret_suit, &ret_number);
+#if DEBUG_PROBS
+				if (t == paths->fields_no - 1)
+					printf("%s has the lowest probability\n",
+						decode_card(ret_suit, ret_number, FALSE));
+#endif
 
 				for (j=0,iter=player[n].list->head;iter;iter=iter->next,j++)
 					if (CARD_SUIT(iter) == ret_suit && CARD_NUMBER(iter) == ret_number)
 						break;
 
 				if (ret_number == CARD_JACK(ret_suit) % 13) {
-					lastsuit = get_suit_selector(THIS_CARD);
+					lastsuit = get_suit_selector(THIS_CARD(iter2));
 					sprintf(message, "%s selected", suitstr[lastsuit]);
 					printf("\t%s\n", message);
 					do_xmlNewChild(node, turn_node, "msg", message);
@@ -1620,7 +1676,7 @@ void bot_play(int n)
 				}
 
 				if (ret_number == CARD_QUEEN(ret_suit) % 13)
-					update_turn(FLAGS_QUEEN);
+					update_turn();
 
 				if (ret_number == CARD_KING(ret_suit) % 13)
 					rotation *= (-1);
@@ -1687,7 +1743,7 @@ fnreturn:
 				if (getactiveplayers() == 1)
 					finish_hand();
 			}
-			update_turn(FLAGS_NONE);
+			update_turn();
 			while (dllst_delitem(alternatives, 0)) {}
 			free(alternatives);
 			return;
@@ -1749,12 +1805,13 @@ getmorecards:
 	sprintf(message, "I have no cards matching suit or number as last card played");
 	printf("\t%s\n", message);
 	do_xmlNewChild(node, turn_node, "msg", message);
-	update_turn(FLAGS_NONE);
+	update_turn();
 	while (dllst_delitem(alternatives, 0)) {}
 	free(alternatives);
 	if (getactiveplayers() == 1)
 		finish_hand();
 }
+#undef LAST_CARD
 #undef THIS_CARD
 
 int getactiveplayers(void)
@@ -2060,13 +2117,7 @@ void do_buttondown(XButtonEvent *bp)
 					// card have been played)
 					player[HUMAN].specialpts -= dispatched / 4;
 
-					if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_CLUBS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_DIAMONDS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_HEARTS) ||
-					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_SPADES))
-						update_turn(FLAGS_QUEEN);
-					else
-						update_turn(FLAGS_NONE);
+					update_turn();
 
 					while (turn != HUMAN && getactiveplayers() > 1)
 						bot_play(turn);
@@ -2087,7 +2138,7 @@ void do_buttondown(XButtonEvent *bp)
 							printf("\t%s\n", message);
 							do_xmlNewChild(node, turn_node, "msg", message);
 							player[HUMAN].active = FALSE;
-							update_turn(FLAGS_NONE);
+							update_turn();
 							while (getactiveplayers() > 1)
 								bot_play(turn);
 							finish_hand();
@@ -2125,7 +2176,7 @@ void do_buttondown(XButtonEvent *bp)
 				printf("\t%s\n", message);
 				do_xmlNewChild(node, turn_node, "msg", message);
 
-				update_turn(FLAGS_NONE);
+				update_turn();
 				while (turn != HUMAN && getactiveplayers() > 1)
 					bot_play(turn);
 

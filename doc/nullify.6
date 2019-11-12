@@ -2,12 +2,12 @@
 .\"     Title: nullify
 .\"    Author: [see the "AUTHORS" section]
 .\" Generator: DocBook XSL Stylesheets v1.79.1 <http://docbook.sf.net/>
-.\"      Date: 10/15/2019
+.\"      Date: 11/12/2019
 .\"    Manual: Linux Games
 .\"    Source: Linux Games
 .\"  Language: English
 .\"
-.TH "NULLIFY" "6" "10/15/2019" "Linux Games" "Linux Games"
+.TH "NULLIFY" "6" "11/12/2019" "Linux Games" "Linux Games"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -92,7 +92,7 @@ Display this message
 .RE
 .SH "DESCRIPTION"
 .PP
-Nullify is a cards game for Linux which goal is to get rid of all of your cards\&. Each game is based on hands (formerly known as rounds) and each hand is based on turns\&. The hand ends when there is only one player who could not play all of the cards in its turns, with the number of them being added to its scores\&. The game ends when a player reaches the upper limit of scores allowed (default 16), becoming on the looser of the game\&.
+Nullify is a cards game for Linux whose goal is to get rid of all of your cards\&. Each game is based on hands (formerly known as rounds) and each hand is based on turns\&. The hand ends when there is only one player who could not play all of the cards in its turns, with the number of them being added to its scores\&. The game ends when a player reaches the upper limit of scores allowed (default 16), becoming on the looser of the game\&.
 .SH "MAIN RULE"
 .PP
 When in turn, the player must either play a card of the same kind / number as last card played or pick up one card from the deck\&. If is not possible play the new card because it mismatches kind or number, you must to do right\-click over the deck and the turn is updated to the next player\&.
@@ -124,6 +124,13 @@ Whether a "Q" is played, the most immediate player in turn is skipped\&.
 .RS 4
 Whether a "K" is played, the rotation mode is toggled clockwise/counter\-clockwise\&.
 .RE
+.SH "GETTING EXTRA POINTS"
+.PP
+You can collect extra points during each hand according to the amount of cards to get from the deck or the amount of cards dispatched in your turn\&. In fact, you will add 1 extra point for each 6 cards you pick up from the deck (e\&.g\&., which could be achieved if previous bots play aces and twos) and you will subtract 1 extra point for each 4 cards that you play sequentially in your turn (e\&.g\&., you can play a 4, then another 4, a 7 and then any arbitrary card matching the suit of the last 7)\&.
+.PP
+Since the maximum number of aces and twos that can be simultaneously played is 8, the maximum number of cards that you\*(Aqd get from the deck would be 24 and, therefore, in that case you would add 4 special points\&. Similarly, due to the maximum number of cards that you can play sequentially in a turn is 17 (i\&.e\&., 4 x 4\*(Aqs + 4 x 7\*(Aqs + 4 x Jacks + 4 x Queens + 1), you would subtract 4 special points (\-4)\&.
+.PP
+When the hand ends, all of these extra points are shown in the "Special" column of the Table of Scores\&. The "Total" column stores the total points accumulated in previous hands plus the number of cards which could not be played by the looser of the hand plus the special points for each player\&.
 .SH "CONFIGURATION"
 .PP
 Nullify reads default game options from the system configuration file

@@ -1,4 +1,4 @@
-AC_INIT([nullify], [0.3.0], [todovirtual15@gmail.com])
+AC_INIT([nullify], [0.3.1], [todovirtual15@gmail.com])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 AC_ARG_ENABLE([xml-logs],

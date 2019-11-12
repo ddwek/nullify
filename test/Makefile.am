@@ -1,5 +1,9 @@
 # Directives to test several functions defined under the
-# subdirectory "src/" using the built-in Automake test driver
+# subdirectory "src/" using the built-in Automake test driver.
+#
+# Tests are not performed by default. Thus, if you want to
+# compile them you need to explicitly type "make check" on
+# the command line.
 
 TESTS = delayedrand \
 	dllst_newitem \

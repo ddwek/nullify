@@ -1,7 +1,7 @@
 Nullify
 =======
 
-Nullify is a cards game for Linux which goal is to get rid of all of your cards.
+Nullify is a cards game for Linux whose goal is to get rid of all of your cards.
 Each game is based on hands (formerly known as rounds) and each hand is based on
 turns. The hand ends when there is only one player who could not play all of the
 cards in its turns, with the number of them being added to its scores. The game

@@ -1,4 +1,4 @@
-Nullify is a cards game which goal is to get rid of all the cards you have in hand.
+Nullify is a cards game whose goal is to get rid of all the cards you have in hand.
 
 Main rule
 =========

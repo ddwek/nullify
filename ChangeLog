@@ -1,3 +1,23 @@
+2019-11-12  Daniel Dwek  <todovirtual15@gmail.com>
+
+	0.3.1 Release
+	* configure.ac: updated package version to 0.3.1
+
+	* doc/nullify.6: manpage updated.
+
+	* doc/nullify.xml: added section "Getting extra points".
+
+	* src/main.c: bot_calc_probabilities() fixed.
+
+	* src/main.c: bot_play() now supports probabilities
+	  computation for the last card to play.
+
+	* src/main.c: bot_select_best_suit() removed.
+
+	* src/main.c: update_turn() fixed.
+
+	* Semantic fixes in many files ("which" by "whose", etc)
+
 2019-10-15  Daniel Dwek  <todovirtual15@gmail.com>
 
 	0.3.0 Release
