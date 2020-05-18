@@ -1,3 +1,13 @@
+2020-05-18  Daniel Dwek  <todovirtual15@gmail.com>
+
+	0.3.2 Release
+	* configure.ac: updated package version to 0.3.2
+
+	* src/main.c: back to 0.3.0 changes because
+	  update_turn() screwed it up on v0.3.1. This
+	  only means that new unit tests must to be
+	  performed, with graphical testing when needed. 
+
 2019-11-12  Daniel Dwek  <todovirtual15@gmail.com>
 
 	0.3.1 Release
