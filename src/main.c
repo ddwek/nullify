@@ -62,6 +62,8 @@
 #define DECK_Y			((600 - CARD_HEIGHT) / 2)
 #define STACK_OF_PLAYED_X	(DECK_X + CARD_WIDTH + 7)
 #define STACK_OF_PLAYED_Y	DECK_Y
+#define FLAGS_NONE		0
+#define FLAGS_QUEEN		1
 #define HUMAN			0
 #define BOT_1			1
 #define BOT_2			2
@@ -163,7 +165,7 @@ void add_selector(struct resource_st *card, int x, int dx, int y);
 void del_selector(struct resource_st *card, int x, int dx, int y);
 void update_cards(int nplayer, action_t act, void *param);
 void update_table(action_table_t act);
-void update_turn(void);
+void update_turn(int flags);
 char *decode_card(int suit, int number, boolean_t addnode);
 void animate_card(int nplayer, boolean_t isplaying, int suit, int number);
 int getcardfromdeck(int nplayer, action_t act);
@@ -1108,13 +1110,10 @@ void update_table(action_table_t act)
  * then the next players in turn are BOT_2, BOT_1, HUMAN, BOT_3, etc).
  *
  */
-void update_turn(void)
+void update_turn(int flags)
 {
 	render_resource(&resource[RES_PLAYING_DISABLED], playing_x[turn], playing_y[turn]);
-	if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_CLUBS) % 13    ||
-	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_DIAMONDS) % 13 ||
-	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_HEARTS) % 13   ||
-	    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_SPADES) % 13) {
+	if (flags & FLAGS_QUEEN) {
 		if (rotation == 1) {
 			while (!player[(turn + 1) & 3].active) {
 				turn++;
@@ -1391,7 +1390,7 @@ getcard:
 				finish_hand();
 				return -1;
 			} else {
-				update_turn();
+				update_turn(FLAGS_NONE);
 			}
 		}
 
@@ -1562,8 +1561,7 @@ void bot_play(int n)
 			 * convenient to play according to the least number/suit probabilities
 			 * of the last card of each possible path. It is intended to
 			 * difficult to play a card of the same number for the next player,
-			 * which turns bots more evil (or smarter, depending on your point
-			 * of view).
+			 * which turns bots smarter.
 			 *
 			 */
 			bot_calc_probabilities(n);
@@ -1676,7 +1674,7 @@ void bot_play(int n)
 				}
 
 				if (ret_number == CARD_QUEEN(ret_suit) % 13)
-					update_turn();
+					update_turn(FLAGS_QUEEN);
 
 				if (ret_number == CARD_KING(ret_suit) % 13)
 					rotation *= (-1);
@@ -1743,7 +1741,7 @@ fnreturn:
 				if (getactiveplayers() == 1)
 					finish_hand();
 			}
-			update_turn();
+			update_turn(FLAGS_NONE);
 			while (dllst_delitem(alternatives, 0)) {}
 			free(alternatives);
 			return;
@@ -1805,7 +1803,7 @@ getmorecards:
 	sprintf(message, "I have no cards matching suit or number as last card played");
 	printf("\t%s\n", message);
 	do_xmlNewChild(node, turn_node, "msg", message);
-	update_turn();
+	update_turn(FLAGS_NONE);
 	while (dllst_delitem(alternatives, 0)) {}
 	free(alternatives);
 	if (getactiveplayers() == 1)
@@ -2117,7 +2115,14 @@ void do_buttondown(XButtonEvent *bp)
 					// card have been played)
 					player[HUMAN].specialpts -= dispatched / 4;
 
-					update_turn();
+					if (CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_CLUBS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_DIAMONDS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_HEARTS) ||
+					    CARD_NUMBER(played_list->tail) == CARD_QUEEN(SUIT_SPADES))
+						update_turn(FLAGS_QUEEN);
+					else
+						update_turn(FLAGS_NONE);
+
 
 					while (turn != HUMAN && getactiveplayers() > 1)
 						bot_play(turn);
@@ -2138,7 +2143,7 @@ void do_buttondown(XButtonEvent *bp)
 							printf("\t%s\n", message);
 							do_xmlNewChild(node, turn_node, "msg", message);
 							player[HUMAN].active = FALSE;
-							update_turn();
+							update_turn(FLAGS_NONE);
 							while (getactiveplayers() > 1)
 								bot_play(turn);
 							finish_hand();
@@ -2176,7 +2181,7 @@ void do_buttondown(XButtonEvent *bp)
 				printf("\t%s\n", message);
 				do_xmlNewChild(node, turn_node, "msg", message);
 
-				update_turn();
+				update_turn(FLAGS_NONE);
 				while (turn != HUMAN && getactiveplayers() > 1)
 					bot_play(turn);
 
